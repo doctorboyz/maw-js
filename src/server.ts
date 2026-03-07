@@ -84,7 +84,6 @@ function stopIntervals() {
 }
 
 export function startServer(port = +(process.env.MAW_PORT || 3456)) {
-  const port = +(process.env.MAW_PORT || 3456);
 
   Bun.serve({
     port,
