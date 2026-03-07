@@ -54,7 +54,8 @@ export function findWindow(sessions: Session[], query: string): string | null {
 }
 
 export async function capture(target: string, lines = 25, host?: string): Promise<string> {
-  return ssh(`tmux capture-pane -t '${target}' -p 2>/dev/null | tail -${lines}`, host);
+  // -e preserves ANSI escape sequences (colors)
+  return ssh(`tmux capture-pane -t '${target}' -e -p 2>/dev/null | tail -${lines}`, host);
 }
 
 export async function sendKeys(target: string, text: string, host?: string): Promise<void> {

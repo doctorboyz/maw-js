@@ -95,6 +95,75 @@
 <div class="toast" id="toast"></div>
 
 <script>
+// ANSI color map
+const ANSI_COLORS = [
+  '#000','#c00','#0a0','#c50','#00c','#c0c','#0cc','#ccc',  // 0-7
+  '#555','#f55','#5f5','#ff5','#55f','#f5f','#5ff','#fff',  // 8-15 bright
+];
+
+function ansi256(n) {
+  if (n < 16) return ANSI_COLORS[n];
+  if (n < 232) { // 6x6x6 cube
+    n -= 16;
+    const b = (n % 6) * 51, g = (Math.floor(n/6) % 6) * 51, r = Math.floor(n/36) * 51;
+    return `rgb(${r},${g},${b})`;
+  }
+  const v = (n - 232) * 10 + 8; // grayscale
+  return `rgb(${v},${v},${v})`;
+}
+
+function ansiToHtml(text) {
+  let html = '';
+  let fg = null, bg = null, bold = false, dim = false, italic = false, underline = false, strike = false;
+  const parts = text.split(/(\x1b\[[0-9;]*m)/);
+
+  for (const part of parts) {
+    const m = part.match(/^\x1b\[([0-9;]*)m$/);
+    if (!m) { html += esc(part); continue; }
+
+    // Close previous span if any style was active
+    if (fg || bg || bold || dim || italic || underline || strike) html += '</span>';
+
+    const codes = m[1] ? m[1].split(';').map(Number) : [0];
+    for (let i = 0; i < codes.length; i++) {
+      const c = codes[i];
+      if (c === 0) { fg = bg = null; bold = dim = italic = underline = strike = false; }
+      else if (c === 1) bold = true;
+      else if (c === 2) dim = true;
+      else if (c === 3) italic = true;
+      else if (c === 4) underline = true;
+      else if (c === 9) strike = true;
+      else if (c === 22) { bold = false; dim = false; }
+      else if (c === 23) italic = false;
+      else if (c === 24) underline = false;
+      else if (c === 29) strike = false;
+      else if (c >= 30 && c <= 37) fg = ANSI_COLORS[c - 30];
+      else if (c === 38 && codes[i+1] === 5) { fg = ansi256(codes[i+2]); i += 2; }
+      else if (c === 38 && codes[i+1] === 2) { fg = `rgb(${codes[i+2]},${codes[i+3]},${codes[i+4]})`; i += 4; }
+      else if (c === 39) fg = null;
+      else if (c >= 40 && c <= 47) bg = ANSI_COLORS[c - 40];
+      else if (c === 48 && codes[i+1] === 5) { bg = ansi256(codes[i+2]); i += 2; }
+      else if (c === 48 && codes[i+1] === 2) { bg = `rgb(${codes[i+2]},${codes[i+3]},${codes[i+4]})`; i += 4; }
+      else if (c === 49) bg = null;
+      else if (c >= 90 && c <= 97) fg = ANSI_COLORS[c - 90 + 8];
+      else if (c >= 100 && c <= 107) bg = ANSI_COLORS[c - 100 + 8];
+    }
+
+    // Open new span if any style active
+    const styles = [];
+    if (fg) styles.push(`color:${fg}`);
+    if (bg) styles.push(`background:${bg}`);
+    if (bold) styles.push('font-weight:bold');
+    if (dim) styles.push('opacity:0.6');
+    if (italic) styles.push('font-style:italic');
+    if (underline) styles.push('text-decoration:underline');
+    if (strike) styles.push('text-decoration:line-through');
+    if (styles.length) html += `<span style="${styles.join(';')}">`;
+  }
+  if (fg || bg || bold || dim || italic || underline || strike) html += '</span>';
+  return html;
+}
+
 let ws = null;
 let selectedTarget = null;
 let reconnectTimer = null;
@@ -117,7 +186,7 @@ function connect() {
     } else if (data.type === 'capture') {
       const el = document.getElementById('preview');
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
-      el.textContent = data.content || '(empty)';
+      el.innerHTML = ansiToHtml(data.content || '(empty)');
       if (atBottom) el.scrollTop = el.scrollHeight;
     } else if (data.type === 'sent') {
       showToast(`sent to ${data.target}`);
