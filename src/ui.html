@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>tmux Remote — Homekeeper</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0f; color: #e0e0e0; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 14px; }
+
+  .header { padding: 16px 20px; border-bottom: 1px solid #1a1a2e; display: flex; align-items: center; gap: 12px; }
+  .header h1 { font-size: 16px; color: #64b5f6; font-weight: 500; }
+  .header .status { font-size: 12px; color: #666; }
+
+  .container { display: flex; height: calc(100vh - 53px); }
+
+  /* Sidebar */
+  .sidebar { width: 260px; border-right: 1px solid #1a1a2e; overflow-y: auto; flex-shrink: 0; }
+  .session { margin: 8px 0; }
+  .session-name { padding: 6px 16px; font-size: 11px; text-transform: uppercase; color: #666; letter-spacing: 1px; }
+  .window {
+    padding: 8px 16px 8px 24px; cursor: pointer; display: flex; align-items: center; gap: 8px;
+    transition: background 0.1s;
+  }
+  .window:hover { background: #1a1a2e; }
+  .window.selected { background: #1a1a3e; border-right: 2px solid #64b5f6; }
+  .window .idx { color: #555; font-size: 12px; width: 20px; }
+  .window .name { color: #ccc; }
+  .window.selected .name { color: #64b5f6; }
+  .window .dot { width: 6px; height: 6px; border-radius: 50%; background: #333; margin-left: auto; }
+  .window .dot.active { background: #4caf50; }
+
+  /* Main area */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  /* Preview */
+  .preview {
+    flex: 1; padding: 16px 20px; overflow-y: auto;
+    background: #05050a; font-size: 13px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-all; color: #aaa;
+  }
+  .preview .placeholder { color: #333; text-align: center; margin-top: 40%; }
+
+  /* Input */
+  .input-area {
+    padding: 12px 20px; border-top: 1px solid #1a1a2e;
+    display: flex; gap: 8px; align-items: center;
+  }
+  .target-label { color: #64b5f6; font-size: 12px; white-space: nowrap; }
+  .input-area input {
+    flex: 1; background: #111; border: 1px solid #2a2a3e; color: #e0e0e0;
+    padding: 8px 12px; border-radius: 4px; font-family: inherit; font-size: 14px;
+    outline: none;
+  }
+  .input-area input:focus { border-color: #64b5f6; }
+  .input-area button {
+    background: #64b5f6; color: #0a0a0f; border: none; padding: 8px 16px;
+    border-radius: 4px; cursor: pointer; font-family: inherit; font-weight: 600;
+    font-size: 13px;
+  }
+  .input-area button:hover { background: #90caf9; }
+  .input-area button:disabled { background: #333; color: #666; cursor: not-allowed; }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 20px; right: 20px; background: #1a3a1a;
+    color: #4caf50; padding: 10px 16px; border-radius: 6px; font-size: 13px;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+  }
+  .toast.error { background: #3a1a1a; color: #f44336; }
+  .toast.show { opacity: 1; }
+
+  /* Sent log */
+  .sent-log { padding: 0 20px 8px; max-height: 120px; overflow-y: auto; border-top: 1px solid #111; }
+  .sent-item { font-size: 11px; color: #555; padding: 2px 0; }
+  .sent-item .time { color: #444; }
+  .sent-item .msg { color: #7a7; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>tmux Remote</h1>
+  <span class="status" id="status">connecting...</span>
+</div>
+
+<div class="container">
+  <div class="sidebar" id="sidebar"></div>
+  <div class="main">
+    <div class="preview" id="preview"><div class="placeholder">select a window</div></div>
+    <div class="sent-log" id="sentLog"></div>
+    <div class="input-area">
+      <span class="target-label" id="targetLabel">no target</span>
+      <input type="text" id="msgInput" placeholder="type message and press Enter..." disabled />
+      <button id="sendBtn" disabled>Send</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '';
+let selectedTarget = null;
+let refreshTimer = null;
+
+async function loadSessions() {
+  try {
+    const res = await fetch(`${API}/api/sessions`);
+    const sessions = await res.json();
+    renderSidebar(sessions);
+    document.getElementById('status').textContent = `${sessions.length} sessions · white.local`;
+  } catch (e) {
+    document.getElementById('status').textContent = 'offline';
+  }
+}
+
+function renderSidebar(sessions) {
+  const sb = document.getElementById('sidebar');
+  sb.innerHTML = sessions.map(s => `
+    <div class="session">
+      <div class="session-name">${s.name}</div>
+      ${s.windows.map(w => `
+        <div class="window ${selectedTarget === s.name + ':' + w.index ? 'selected' : ''}"
+             data-target="${s.name}:${w.index}" data-name="${w.name}">
+          <span class="idx">${w.index}</span>
+          <span class="name">${w.name}</span>
+          <span class="dot ${w.active ? 'active' : ''}"></span>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+
+  sb.querySelectorAll('.window').forEach(el => {
+    el.addEventListener('click', () => selectWindow(el.dataset.target, el.dataset.name));
+  });
+}
+
+function selectWindow(target, name) {
+  selectedTarget = target;
+  document.getElementById('targetLabel').textContent = target + ' ' + name;
+  document.getElementById('msgInput').disabled = false;
+  document.getElementById('sendBtn').disabled = false;
+  document.getElementById('msgInput').focus();
+
+  document.querySelectorAll('.window').forEach(el => {
+    el.classList.toggle('selected', el.dataset.target === target);
+  });
+
+  capturePane();
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(capturePane, 3000);
+}
+
+async function capturePane() {
+  if (!selectedTarget) return;
+  try {
+    const res = await fetch(`${API}/api/capture?target=${encodeURIComponent(selectedTarget)}`);
+    const data = await res.json();
+    document.getElementById('preview').textContent = data.content || '(empty)';
+    const el = document.getElementById('preview');
+    el.scrollTop = el.scrollHeight;
+  } catch {}
+}
+
+async function sendMessage() {
+  const input = document.getElementById('msgInput');
+  const text = input.value.trim();
+  if (!text || !selectedTarget) return;
+
+  input.disabled = true;
+  document.getElementById('sendBtn').disabled = true;
+
+  try {
+    const res = await fetch(`${API}/api/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: selectedTarget, text }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(`sent to ${selectedTarget}`);
+      logSent(text);
+      input.value = '';
+      setTimeout(capturePane, 1500);
+    } else {
+      showToast(data.error || 'send failed', true);
+    }
+  } catch (e) {
+    showToast('network error', true);
+  }
+
+  input.disabled = false;
+  document.getElementById('sendBtn').disabled = false;
+  input.focus();
+}
+
+function logSent(msg) {
+  const log = document.getElementById('sentLog');
+  const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const item = document.createElement('div');
+  item.className = 'sent-item';
+  item.innerHTML = `<span class="time">${now}</span> → <span class="msg">${escHtml(msg)}</span>`;
+  log.prepend(item);
+  if (log.children.length > 20) log.lastChild.remove();
+}
+
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function showToast(msg, error = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (error ? ' error' : '');
+  setTimeout(() => t.className = 'toast', 2000);
+}
+
+// Events
+document.getElementById('sendBtn').addEventListener('click', sendMessage);
+document.getElementById('msgInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendMessage();
+});
+
+// Init
+loadSessions();
+setInterval(loadSessions, 15000);
+</script>
+</body>
+</html>

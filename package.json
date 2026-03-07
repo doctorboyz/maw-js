@@ -1,0 +1,9 @@
+{
+  "name": "maw",
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "maw": "./src/cli.ts"
+  },
+  "description": "maw.js — Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI."
+}
