@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import type { Session, AgentState, PaneStatus } from "../lib/types";
+import type { Session, AgentState, PaneStatus, AgentEvent } from "../lib/types";
 import { stripAnsi } from "../lib/ansi";
 import { playSaiyanSound } from "../lib/sounds";
 
@@ -22,6 +22,15 @@ export function useSessions() {
   const lastSoundTime = useRef(0);
   const [saiyanTargets, setSaiyanTargets] = useState<Set<string>>(new Set());
   const saiyanTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [eventLog, setEventLog] = useState<AgentEvent[]>([]);
+  const MAX_EVENTS = 200;
+
+  const addEvent = useCallback((target: string, type: AgentEvent["type"], detail: string) => {
+    setEventLog(prev => {
+      const next = [...prev, { time: Date.now(), target, type, detail }];
+      return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next;
+    });
+  }, []);
 
   const handleMessage = useCallback((data: any) => {
     if (data.type === "sessions") {
@@ -99,6 +108,10 @@ export function useSessions() {
               setCaptureData((p) => {
                 const existing = p[target];
                 if (existing && existing.preview === preview && existing.status === status) return p;
+                // Log status change
+                if (existing && existing.status !== status) {
+                  addEvent(target, "status", `${existing.status} → ${status}`);
+                }
                 // Play power-up sound on transition to busy (max once per 60s)
                 if (status === "busy" && existing?.status !== "busy") {
                   const now = Date.now();
@@ -148,5 +161,5 @@ export function useSessions() {
       })
     ), [sessions, captureData]);
 
-  return { sessions, agents, saiyanTargets, handleMessage };
+  return { sessions, agents, saiyanTargets, eventLog, addEvent, handleMessage };
 }

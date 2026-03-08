@@ -3,7 +3,7 @@ import { AgentAvatar } from "./AgentAvatar";
 import { HoverPreviewCard } from "./HoverPreviewCard";
 import { Joystick } from "./Joystick";
 import { roomStyle } from "../lib/constants";
-import type { AgentState, Session } from "../lib/types";
+import type { AgentState, Session, AgentEvent } from "../lib/types";
 
 interface MissionControlProps {
   sessions: Session[];
@@ -12,6 +12,8 @@ interface MissionControlProps {
   connected: boolean;
   send: (msg: object) => void;
   onSelectAgent: (agent: AgentState) => void;
+  eventLog: AgentEvent[];
+  addEvent: (target: string, type: AgentEvent["type"], detail: string) => void;
 }
 
 export const MissionControl = memo(function MissionControl({
@@ -21,6 +23,8 @@ export const MissionControl = memo(function MissionControl({
   connected,
   send,
   onSelectAgent,
+  eventLog,
+  addEvent,
 }: MissionControlProps) {
   const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
   const [hoverPreview, setHoverPreview] = useState<{ agent: AgentState; room: { label: string; accent: string }; pos: { x: number; y: number } } | null>(null);
@@ -169,6 +173,13 @@ export const MissionControl = memo(function MissionControl({
       return { ...s, x, y };
     });
   }, [sessions, sessionAgents]);
+
+  // Persistent input buffer per agent (survives pin/unpin)
+  const [inputBufs, setInputBufs] = useState<Record<string, string>>({});
+  const getInputBuf = useCallback((target: string) => inputBufs[target] || "", [inputBufs]);
+  const setInputBuf = useCallback((target: string, val: string) => {
+    setInputBufs(prev => ({ ...prev, [target]: val }));
+  }, []);
 
   // Click agent → pin preview card (not fullscreen modal)
   const onAgentClick = useCallback(
@@ -603,6 +614,10 @@ export const MissionControl = memo(function MissionControl({
             send={send}
             onFullscreen={onPinnedFullscreen}
             onClose={onPinnedClose}
+            eventLog={eventLog}
+            addEvent={addEvent}
+            externalInputBuf={getInputBuf(pinnedPreview.agent.target)}
+            onInputBufChange={(val) => setInputBuf(pinnedPreview.agent.target, val)}
           />
         </div>
       )}

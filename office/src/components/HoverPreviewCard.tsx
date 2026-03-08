@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { ansiToHtml } from "../lib/ansi";
 import { agentColor } from "../lib/constants";
-import type { AgentState } from "../lib/types";
+import type { AgentState, AgentEvent } from "../lib/types";
 
 interface HoverPreviewCardProps {
   agent: AgentState;
@@ -11,6 +11,10 @@ interface HoverPreviewCardProps {
   send?: (msg: object) => void;
   onFullscreen?: () => void;
   onClose?: () => void;
+  eventLog?: AgentEvent[];
+  addEvent?: (target: string, type: AgentEvent["type"], detail: string) => void;
+  externalInputBuf?: string;
+  onInputBufChange?: (val: string) => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -43,14 +47,28 @@ export const HoverPreviewCard = memo(function HoverPreviewCard({
   send,
   onFullscreen,
   onClose,
+  eventLog,
+  addEvent,
+  externalInputBuf,
+  onInputBufChange,
 }: HoverPreviewCardProps) {
   const [content, setContent] = useState("");
-  const [inputBuf, setInputBuf] = useState("");
+  const [localInputBuf, setLocalInputBuf] = useState("");
+  const inputBuf = externalInputBuf ?? localInputBuf;
+  const setInputBuf = useCallback((val: string) => {
+    setLocalInputBuf(val);
+    onInputBufChange?.(val);
+  }, [onInputBufChange]);
   const termRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const color = agentColor(agent.name);
   const displayName = agent.name.replace(/-oracle$/, "").replace(/-/g, " ");
   const statusColor = STATUS_COLORS[agent.status] || "#666";
+
+  // Sync prevInputRef when external buffer initializes
+  useEffect(() => {
+    if (externalInputBuf !== undefined) prevInputRef.current = externalInputBuf;
+  }, []);
 
   // Auto-focus input when pinned (double-tap focus for mobile keyboard)
   useEffect(() => {
@@ -79,12 +97,15 @@ export const HoverPreviewCard = memo(function HoverPreviewCard({
       e.preventDefault();
       if (streamingRef.current) {
         // In streaming mode: just send Enter, chars already sent
+        addEvent?.(agent.target, "command", inputBuf);
         send?.({ type: "send", target: agent.target, text: "\r" });
         streamingRef.current = false;
       } else if (inputBuf && send) {
+        addEvent?.(agent.target, "command", inputBuf);
         send({ type: "send", target: agent.target, text: inputBuf });
       }
       setInputBuf("");
+      prevInputRef.current = "";
       return;
     }
     // Backspace in streaming mode: send to tmux
@@ -94,10 +115,14 @@ export const HoverPreviewCard = memo(function HoverPreviewCard({
     }
   }, [inputBuf, agent.target, send, onClose, onFullscreen]);
 
+  // Track previous input value with ref (avoids stale closure)
+  const prevInputRef = useRef("");
+
   // Stream chars to tmux when input starts with /
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
-    const prev = inputBuf;
+    const prev = prevInputRef.current;
+    prevInputRef.current = val;
     setInputBuf(val);
 
     if (!send) return;
@@ -121,7 +146,7 @@ export const HoverPreviewCard = memo(function HoverPreviewCard({
     if (streamingRef.current && !val.startsWith("/")) {
       streamingRef.current = false;
     }
-  }, [inputBuf, agent.target, send]);
+  }, [agent.target, send]);
 
   // Poll terminal capture
   useEffect(() => {
@@ -320,6 +345,37 @@ export const HoverPreviewCard = memo(function HoverPreviewCard({
         <span className="mt-1 text-[9px] text-white/25 font-mono">{agent.target}</span>
       </div>
 
+      {/* Event timeline badges — pinned only */}
+      {pinned && eventLog && (() => {
+        const events = eventLog.filter(e => e.target === agent.target).slice(-20);
+        if (events.length === 0) return null;
+        const STATUS_BADGE: Record<string, { bg: string; text: string }> = {
+          "status": { bg: "rgba(255,255,255,0.06)", text: "#aaa" },
+          "command": { bg: "rgba(34,211,238,0.15)", text: "#22d3ee" },
+          "saiyan": { bg: "rgba(253,216,53,0.15)", text: "#fdd835" },
+        };
+        return (
+          <div className="flex flex-wrap gap-1 px-3 py-1.5 bg-white/[0.02] border-b border-white/[0.04] overflow-hidden max-h-[52px]">
+            {events.map((ev, i) => {
+              const badge = STATUS_BADGE[ev.type] || STATUS_BADGE.status;
+              const t = new Date(ev.time);
+              const ts = `${t.getHours().toString().padStart(2, "0")}:${t.getMinutes().toString().padStart(2, "0")}:${t.getSeconds().toString().padStart(2, "0")}`;
+              return (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-mono whitespace-nowrap"
+                  style={{ background: badge.bg, color: badge.text }}
+                  title={`${ts} — ${ev.detail}`}
+                >
+                  <span className="text-white/30">{ts.slice(3)}</span>
+                  {ev.detail}
+                </span>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* Terminal header with fullscreen button */}
       <div className="flex items-center gap-2 px-3 py-1.5 bg-white/[0.02] border-b border-white/[0.04]">
         <span className="text-[9px] text-white/30 tracking-[2px] uppercase font-mono">Live Terminal</span>
@@ -392,8 +448,8 @@ export const HoverPreviewCard = memo(function HoverPreviewCard({
             value={inputBuf}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            className="flex-1 bg-transparent text-white/90 outline-none caret-cyan-400 font-mono text-xs"
-            style={{ caretColor: "#22d3ee" }}
+            className="flex-1 bg-transparent text-white/90 outline-none caret-cyan-400 font-mono text-xs [&::-webkit-search-cancel-button]:hidden [&::-webkit-clear-button]:hidden [&::-ms-clear]:hidden"
+            style={{ caretColor: "#22d3ee", WebkitAppearance: "none" }}
             inputMode="text"
             enterKeyHint="send"
             spellCheck={false}
@@ -401,13 +457,35 @@ export const HoverPreviewCard = memo(function HoverPreviewCard({
             autoFocus
             placeholder="type command..."
           />
+          {inputBuf && (
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                setInputBuf("");
+                prevInputRef.current = "";
+                if (streamingRef.current) {
+                  // Clear what was streamed to tmux
+                  send?.({ type: "send", target: agent.target, text: "\x15" }); // Ctrl+U clears line
+                  streamingRef.current = false;
+                }
+                inputRef.current?.focus();
+              }}
+              className="shrink-0 w-6 h-6 rounded-full bg-white/[0.06] text-white/30 hover:text-white/60 hover:bg-white/10 cursor-pointer flex items-center justify-center text-[10px] transition-colors"
+              title="Clear"
+            >
+              ✕
+            </button>
+          )}
           <button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               if (inputBuf && send) {
+                addEvent?.(agent.target, "command", inputBuf);
                 send({ type: "send", target: agent.target, text: inputBuf });
                 setInputBuf("");
+                prevInputRef.current = "";
               }
               inputRef.current?.focus();
             }}

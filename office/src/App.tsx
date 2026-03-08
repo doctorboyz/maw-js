@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useSessions } from "./hooks/useSessions";
 import { UniverseBg } from "./components/UniverseBg";
@@ -59,24 +59,7 @@ export function App() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // Triple-tap to open shortcuts (mobile)
-  const tapCount = useRef(0);
-  const tapTimer = useRef<ReturnType<typeof setTimeout>>();
-  useEffect(() => {
-    const handler = () => {
-      tapCount.current++;
-      clearTimeout(tapTimer.current);
-      if (tapCount.current >= 3) {
-        tapCount.current = 0;
-        setShowShortcuts(true);
-      } else {
-        tapTimer.current = setTimeout(() => { tapCount.current = 0; }, 400);
-      }
-    };
-    window.addEventListener("touchend", handler);
-    return () => { window.removeEventListener("touchend", handler); clearTimeout(tapTimer.current); };
-  }, []);
-  const { sessions, agents, saiyanTargets, handleMessage } = useSessions();
+  const { sessions, agents, saiyanTargets, eventLog, addEvent, handleMessage } = useSessions();
   const { connected, send } = useWebSocket(handleMessage);
 
   const onSelectAgent = useCallback((agent: AgentState) => {
@@ -122,6 +105,8 @@ export function App() {
           connected={connected}
           send={send}
           onSelectAgent={onSelectAgent}
+          eventLog={eventLog}
+          addEvent={addEvent}
         />
         {terminalModal}
         {showShortcuts && <ShortcutOverlay onClose={() => setShowShortcuts(false)} />}

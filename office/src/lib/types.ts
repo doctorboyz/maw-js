@@ -20,3 +20,10 @@ export interface AgentState {
   preview: string;
   status: PaneStatus;
 }
+
+export interface AgentEvent {
+  time: number;
+  target: string;
+  type: "status" | "command" | "saiyan";
+  detail: string;
+}
