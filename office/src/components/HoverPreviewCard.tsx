@@ -64,21 +64,64 @@ export const HoverPreviewCard = memo(function HoverPreviewCard({
     }
   }, [pinned, agent.target]);
 
+  // Slash streaming: track whether we're in streaming mode
+  const streamingRef = useRef(false);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose?.(); return; }
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (inputBuf && send) {
-        send({ type: "send", target: agent.target, text: inputBuf });
-        setInputBuf("");
-      }
-    }
     // F11 or Cmd+Enter for fullscreen
     if (e.key === "F11" || (e.key === "Enter" && (e.metaKey || e.ctrlKey))) {
       e.preventDefault();
       onFullscreen?.();
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (streamingRef.current) {
+        // In streaming mode: just send Enter, chars already sent
+        send?.({ type: "send", target: agent.target, text: "\r" });
+        streamingRef.current = false;
+      } else if (inputBuf && send) {
+        send({ type: "send", target: agent.target, text: inputBuf });
+      }
+      setInputBuf("");
+      return;
+    }
+    // Backspace in streaming mode: send to tmux
+    if (e.key === "Backspace" && streamingRef.current && send) {
+      send({ type: "send", target: agent.target, text: "\b" });
+      return; // let default input handling remove the char
     }
   }, [inputBuf, agent.target, send, onClose, onFullscreen]);
+
+  // Stream chars to tmux when input starts with /
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    const prev = inputBuf;
+    setInputBuf(val);
+
+    if (!send) return;
+
+    // Entering slash mode: first / typed
+    if (val === "/" && prev === "") {
+      streamingRef.current = true;
+      send({ type: "send", target: agent.target, text: "/" });
+      return;
+    }
+
+    // In streaming mode: send new chars
+    if (streamingRef.current && val.length > prev.length) {
+      const newChars = val.slice(prev.length);
+      for (const ch of newChars) {
+        send({ type: "send", target: agent.target, text: ch });
+      }
+    }
+
+    // Left streaming mode (user cleared or removed /)
+    if (streamingRef.current && !val.startsWith("/")) {
+      streamingRef.current = false;
+    }
+  }, [inputBuf, agent.target, send]);
 
   // Poll terminal capture
   useEffect(() => {
@@ -347,7 +390,7 @@ export const HoverPreviewCard = memo(function HoverPreviewCard({
             ref={inputRef}
             type="text"
             value={inputBuf}
-            onChange={(e) => setInputBuf(e.target.value)}
+            onChange={handleChange}
             onKeyDown={handleKeyDown}
             className="flex-1 bg-transparent text-white/90 outline-none caret-cyan-400 font-mono text-xs"
             style={{ caretColor: "#22d3ee" }}

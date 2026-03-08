@@ -74,12 +74,18 @@ export async function sendKeys(target: string, text: string, host?: string): Pro
     "\x1b[B": "Down",
     "\x1b[C": "Right",
     "\x1b[D": "Left",
+    "\r": "Enter",
+    "\b": "BSpace",
   };
   if (SPECIAL_KEYS[text]) {
     await ssh(`tmux send-keys -t '${target}' ${SPECIAL_KEYS[text]}`, host);
     return;
   }
-  if (text.startsWith("/")) {
+  if (text.length === 1) {
+    // Single char — send literally, no Enter (used for streaming mode)
+    const escaped = text === "'" ? "\"'\"" : `'${text}'`;
+    await ssh(`tmux send-keys -t '${target}' -l ${escaped}`, host);
+  } else if (text.startsWith("/")) {
     // Slash commands: send char by char for interactive tools (Claude Code, etc.)
     for (const ch of text) {
       const escaped = ch === "'" ? "\"'\"" : `'${ch}'`;
