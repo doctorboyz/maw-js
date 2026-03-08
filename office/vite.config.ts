@@ -11,9 +11,10 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    host: true,
     proxy: {
-      "/api": "http://localhost:3456",
-      "/ws": { target: "ws://localhost:3456", ws: true },
+      "/api": "http://white.local:3456",
+      "/ws": { target: "ws://white.local:3456", ws: true },
     },
   },
 });

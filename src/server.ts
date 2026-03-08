@@ -44,6 +44,42 @@ app.get("/office/*", serveStatic({
   rewriteRequestPath: (p) => p.replace(/^\/office/, "/dist-office"),
 }));
 
+// Oracle v2 proxy — search, stats
+const ORACLE_URL = process.env.ORACLE_URL || "http://localhost:47779";
+
+app.get("/api/oracle/search", async (c) => {
+  const q = c.req.query("q");
+  if (!q) return c.json({ error: "q required" }, 400);
+  const params = new URLSearchParams({ q, mode: c.req.query("mode") || "hybrid", limit: c.req.query("limit") || "10" });
+  const model = c.req.query("model");
+  if (model) params.set("model", model);
+  try {
+    const res = await fetch(`${ORACLE_URL}/api/search?${params}`);
+    return c.json(await res.json());
+  } catch (e: any) {
+    return c.json({ error: `Oracle unreachable: ${e.message}` }, 502);
+  }
+});
+
+app.get("/api/oracle/traces", async (c) => {
+  const limit = c.req.query("limit") || "10";
+  try {
+    const res = await fetch(`${ORACLE_URL}/api/traces?limit=${limit}`);
+    return c.json(await res.json());
+  } catch (e: any) {
+    return c.json({ error: `Oracle unreachable: ${e.message}` }, 502);
+  }
+});
+
+app.get("/api/oracle/stats", async (c) => {
+  try {
+    const res = await fetch(`${ORACLE_URL}/api/stats`);
+    return c.json(await res.json());
+  } catch (e: any) {
+    return c.json({ error: `Oracle unreachable: ${e.message}` }, 502);
+  }
+});
+
 app.onError((err, c) => c.json({ error: err.message }, 500));
 
 export { app };

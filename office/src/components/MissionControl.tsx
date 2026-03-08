@@ -2,6 +2,7 @@ import { memo, useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { AgentAvatar } from "./AgentAvatar";
 import { HoverPreviewCard } from "./HoverPreviewCard";
 import { Joystick } from "./Joystick";
+import { OracleSearch } from "./OracleSearch";
 import { roomStyle, agentColor } from "../lib/constants";
 import type { AgentState, Session, AgentEvent } from "../lib/types";
 
@@ -29,6 +30,7 @@ export const MissionControl = memo(function MissionControl({
   const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
   const [hoverPreview, setHoverPreview] = useState<{ agent: AgentState; room: { label: string; accent: string }; pos: { x: number; y: number } } | null>(null);
   const [pinnedPreview, setPinnedPreview] = useState<{ agent: AgentState; room: { label: string; accent: string }; pos: { x: number; y: number }; svgX: number; svgY: number } | null>(null);
+  const pinnedByUser = useRef(false); // true = user clicked, false = auto-pinned by saiyan
   const hoverTimeout = useRef<ReturnType<typeof setTimeout>>();
 
   // Auto-popup cards for Saiyan agents — max 3 visible, 2s stagger, FIFO
@@ -39,6 +41,25 @@ export const MissionControl = memo(function MissionControl({
   const saiyanDismissTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const saiyanOrderCounter = useRef(0);
   const prevSaiyanTargets = useRef<Set<string>>(new Set());
+
+  const [showSearch, setShowSearch] = useState(false);
+
+  // Hide search when card is pinned
+  useEffect(() => {
+    if (pinnedPreview) setShowSearch(false);
+  }, [pinnedPreview]);
+
+  // Cmd+K or Ctrl+K to toggle search
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setShowSearch((s) => !s);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const [zoom, setZoom] = useState(1.1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -181,6 +202,7 @@ export const MissionControl = memo(function MissionControl({
         return;
       }
       const pos = calcCardPos(svgX, svgY);
+      pinnedByUser.current = true;
       setPinnedPreview({ agent, room, pos, svgX, svgY });
       setHoverPreview(null); // hide hover
       send({ type: "subscribe", target: agent.target });
@@ -251,6 +273,27 @@ export const MissionControl = memo(function MissionControl({
     }
     return map;
   }, [layout]);
+
+  // Auto-pin saiyan agents: cycle if auto-pinned, skip if user-pinned
+  useEffect(() => {
+    if (saiyanTargets.size === 0 || agentPositions.size === 0) return;
+    // If user manually pinned, don't override
+    if (pinnedPreview && pinnedByUser.current) return;
+    // Find a saiyan target that isn't already shown
+    const currentTarget = pinnedPreview?.agent.target;
+    const targets = [...saiyanTargets];
+    const nextTarget = targets.find(t => t !== currentTarget) || targets[0];
+    if (nextTarget === currentTarget) return; // already showing this one
+    const agent = agents.find(a => a.target === nextTarget);
+    const pos = agentPositions.get(nextTarget);
+    if (agent && pos) {
+      const cardPos = calcCardPos(pos.svgX, pos.svgY);
+      pinnedByUser.current = false;
+      setPinnedPreview({ agent, room: { label: pos.style.label, accent: pos.style.accent }, pos: cardPos, svgX: pos.svgX, svgY: pos.svgY });
+      setHoverPreview(null);
+      send({ type: "subscribe", target: nextTarget });
+    }
+  }, [saiyanTargets, agentPositions]);
 
   // Process queue: show next card from queue (max 3 visible, 2s stagger)
   const processQueue = useCallback(() => {
@@ -647,6 +690,23 @@ export const MissionControl = memo(function MissionControl({
           />
         </div>
       )}
+
+      {/* Search button — bottom left */}
+      <button
+        onClick={() => setShowSearch(true)}
+        className="absolute bottom-4 left-6 flex items-center gap-2 px-3 py-2 rounded-xl bg-black/50 backdrop-blur border border-white/10 text-white/50 hover:text-[#64b5f6] hover:border-[#64b5f6]/30 cursor-pointer transition-all z-20"
+        title="Search Oracle (⌘K)"
+      >
+        <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+          <circle cx={11} cy={11} r={8} />
+          <line x1={21} y1={21} x2={16.65} y2={16.65} />
+        </svg>
+        <span className="text-[10px] font-mono">Oracle</span>
+        <kbd className="text-[8px] text-white/20 ml-1">⌘K</kbd>
+      </button>
+
+      {/* Oracle Search overlay — auto-shows when idle, dismissed until next activity */}
+      {showSearch && <OracleSearch onClose={() => setShowSearch(false)} />}
 
       {/* Bottom stats */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-6 px-6 py-2 rounded-xl bg-black/40 backdrop-blur border border-white/[0.04]">

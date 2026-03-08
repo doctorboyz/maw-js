@@ -2,10 +2,24 @@
 
 > Multi-Agent Workflow — remote tmux orchestra control via SSH
 
-## Install
+## Quick Start (no install)
 
 ```bash
-bunx --bun maw@github:Soul-Brews-Studio/maw.js#main ls
+bunx --bun github:Soul-Brews-Studio/maw-js ls
+bunx --bun github:Soul-Brews-Studio/maw-js peek neo
+bunx --bun github:Soul-Brews-Studio/maw-js hey neo "how are you"
+```
+
+## Install (global)
+
+```bash
+# Clone + link
+ghq get Soul-Brews-Studio/maw-js
+cd $(ghq root)/github.com/Soul-Brews-Studio/maw-js
+bun install && bun link
+
+# Now use directly
+maw ls
 ```
 
 ## Usage
@@ -23,8 +37,16 @@ maw serve                   # web UI on :3456
 ## Env
 
 ```bash
-export MAW_HOST=white.local   # SSH target (default)
+export MAW_HOST=white.local   # SSH target (default: local tmux)
 ```
+
+## Web UIs
+
+| Path | View |
+|------|------|
+| `/` | Terminal UI (ANSI, click to interact) |
+| `/dashboard` | Orbital constellation |
+| `/office` | Virtual office (React, SVG avatars) |
 
 ## Evolution
 
