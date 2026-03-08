@@ -1,2 +1,5 @@
 node_modules/
 dist-office/
+
+# Bun global link artifacts
+~/
