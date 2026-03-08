@@ -113,6 +113,7 @@ export const HoverPreviewCard = memo(function HoverPreviewCard({
         height: "calc(100vh - 120px)",
         maxHeight: 700,
       }}
+      onClick={() => { if (pinned) inputRef.current?.focus(); }}
     >
       {/* Header with big avatar */}
       <div

@@ -1,6 +1,7 @@
 import { memo, useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { AgentAvatar } from "./AgentAvatar";
 import { HoverPreviewCard } from "./HoverPreviewCard";
+import { Joystick } from "./Joystick";
 import { roomStyle } from "../lib/constants";
 import type { AgentState, Session } from "../lib/types";
 
@@ -133,6 +134,10 @@ export const MissionControl = memo(function MissionControl({
 
   const resetView = useCallback(() => { setZoom(1.1); setPan({ x: 0, y: 0 }); }, []);
 
+  const onJoystickPan = useCallback((dx: number, dy: number) => {
+    setPan(p => ({ x: p.x + dx, y: p.y + dy }));
+  }, []);
+
   // Group agents by session
   const sessionAgents = useMemo(() => {
     const map = new Map<string, AgentState[]>();
@@ -181,7 +186,7 @@ export const MissionControl = memo(function MissionControl({
     if (pinnedPreview) {
       const agent = pinnedPreview.agent;
       setPinnedPreview(null);
-      setTimeout(() => onSelectAgent(agent), 100);
+      setTimeout(() => onSelectAgent(agent), 150);
     }
   }, [pinnedPreview, onSelectAgent]);
 
@@ -496,6 +501,11 @@ export const MissionControl = memo(function MissionControl({
           );
         })}
       </svg>
+
+      {/* Joystick — bottom left */}
+      <div className="absolute bottom-4 left-6 z-10">
+        <Joystick onPan={onJoystickPan} />
+      </div>
 
       {/* Zoom controls */}
       <div className="absolute bottom-4 right-6 flex flex-col items-center gap-1">

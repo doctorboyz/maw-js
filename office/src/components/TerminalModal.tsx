@@ -40,8 +40,8 @@ export function TerminalModal({ agent, send, onClose, onNavigate, onSelectSiblin
 
   // Auto-focus input on open + when switching agents
   useEffect(() => {
-    // Small delay to ensure DOM is ready
-    const t = setTimeout(() => inputRef.current?.focus(), 50);
+    // Delay to ensure DOM is ready (needs >100ms when coming from pinned card unmount)
+    const t = setTimeout(() => inputRef.current?.focus(), 120);
     return () => clearTimeout(t);
   }, [agent.target]);
 
