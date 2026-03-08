@@ -7,8 +7,10 @@
   },
   "scripts": {
     "build:office": "cd office && bunx vite build",
+    "dev": "pm2 start ecosystem.config.cjs && echo '→ maw backend (watch src/) on :3456\n→ maw-dev vite HMR on :5173\n→ pm2 logs to follow'",
     "dev:office": "cd office && bunx vite",
-    "deploy": "bun install && bun run build:office && pm2 restart maw"
+    "dev:stop": "pm2 delete maw maw-dev 2>/dev/null; echo '→ dev stopped'",
+    "deploy": "bun install && bun run build:office && pm2 delete maw-dev 2>/dev/null; pm2 restart maw"
   },
   "description": "maw.js — Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
   "dependencies": {

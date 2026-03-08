@@ -6,6 +6,7 @@ import { StatusBar } from "./components/StatusBar";
 import { RoomGrid } from "./components/RoomGrid";
 import { TerminalModal } from "./components/TerminalModal";
 import { MissionControl } from "./components/MissionControl";
+import { unlockAudio, isAudioUnlocked } from "./lib/sounds";
 import type { AgentState } from "./lib/types";
 
 function useHashRoute() {
@@ -18,7 +19,30 @@ function useHashRoute() {
   return hash;
 }
 
+/** Unlock audio on first user interaction — small tick to confirm */
+function useAudioUnlock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const handler = () => {
+      if (!isAudioUnlocked()) {
+        unlockAudio();
+        setReady(true);
+      }
+    };
+    window.addEventListener("click", handler, { once: true });
+    window.addEventListener("keydown", handler, { once: true });
+    window.addEventListener("touchstart", handler, { once: true });
+    return () => {
+      window.removeEventListener("click", handler);
+      window.removeEventListener("keydown", handler);
+      window.removeEventListener("touchstart", handler);
+    };
+  }, []);
+  return ready;
+}
+
 export function App() {
+  useAudioUnlock();
   const route = useHashRoute();
   const [selectedAgent, setSelectedAgent] = useState<AgentState | null>(null);
   const { sessions, agents, saiyanTargets, handleMessage } = useSessions();

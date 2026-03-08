@@ -36,16 +36,20 @@ export function TerminalModal({ agent, send, onClose, onNavigate, onSelectSiblin
   const [inputBuf, setInputBuf] = useState("");
   const termRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-focus on open + refocus when clicking anywhere inside
+  // Auto-focus input on open + when switching agents
   useEffect(() => {
-    wrapperRef.current?.focus();
-  }, []);
+    // Small delay to ensure DOM is ready
+    const t = setTimeout(() => inputRef.current?.focus(), 50);
+    return () => clearTimeout(t);
+  }, [agent.target]);
 
+  // Refocus input when clicking anywhere in the modal
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
-    const refocus = () => { setTimeout(() => el.focus(), 0); };
+    const refocus = () => { setTimeout(() => inputRef.current?.focus(), 0); };
     el.addEventListener("mousedown", refocus);
     return () => el.removeEventListener("mousedown", refocus);
   }, []);
@@ -62,13 +66,25 @@ export function TerminalModal({ agent, send, onClose, onNavigate, onSelectSiblin
     return () => { clearInterval(poll); send({ type: "subscribe", target: "" }); };
   }, [agent.target, send]);
 
+  const isFirstContent = useRef(true);
   useEffect(() => {
     const el = termRef.current;
     if (el) {
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-      if (atBottom) el.scrollTop = el.scrollHeight;
+      // Always scroll to bottom on first content load
+      if (isFirstContent.current && content) {
+        isFirstContent.current = false;
+        el.scrollTop = el.scrollHeight;
+      } else {
+        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+        if (atBottom) el.scrollTop = el.scrollHeight;
+      }
     }
   }, [content]);
+
+  // Reset first-content flag when switching agents
+  useEffect(() => {
+    isFirstContent.current = true;
+  }, [agent.target]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
@@ -84,14 +100,8 @@ export function TerminalModal({ agent, send, onClose, onNavigate, onSelectSiblin
     if (e.key === "Enter") {
       e.preventDefault();
       if (inputBuf) { send({ type: "send", target: agent.target, text: inputBuf }); setInputBuf(""); }
-    } else if (e.key === "Backspace") {
-      e.preventDefault();
-      if (e.metaKey || e.ctrlKey) setInputBuf("");
-      else setInputBuf((b) => b.slice(0, -1));
     } else if (e.key === "c" && e.ctrlKey) {
       e.preventDefault(); setInputBuf("");
-    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
-      e.preventDefault(); setInputBuf((b) => b + e.key);
     }
   }, [inputBuf, agent.target, send, onClose, onNavigate]);
 
@@ -107,9 +117,6 @@ export function TerminalModal({ agent, send, onClose, onNavigate, onSelectSiblin
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md"
       onClick={(e) => e.target === e.currentTarget && onClose()}
-      onKeyDown={handleKeyDown}
-      onPaste={handlePaste}
-      tabIndex={0}
       ref={wrapperRef}
     >
       <div className="w-[90vw] max-w-[900px] h-[80vh] bg-[#0a0a0f] border border-white/[0.06] rounded-xl flex flex-col overflow-hidden shadow-2xl">
@@ -166,10 +173,26 @@ export function TerminalModal({ agent, send, onClose, onNavigate, onSelectSiblin
         />
 
         {/* Input */}
-        <div className="flex items-center gap-2 px-4 py-2 bg-[#0e0e18] border-t border-white/[0.06] font-mono text-xs">
-          <span className="text-cyan-400 font-semibold">&#x276f;</span>
-          <span className="text-white/90 whitespace-pre">{inputBuf}</span>
-          <span className="inline-block w-[7px] h-[15px] bg-cyan-400/80 animate-[blink_1s_step-end_infinite]" />
+        <div
+          className="flex items-center gap-2 px-4 py-2 bg-[#0e0e18] border-t border-white/[0.06] font-mono text-xs cursor-text"
+          onClick={() => inputRef.current?.focus()}
+        >
+          <span className="text-cyan-400 font-semibold shrink-0">&#x276f;</span>
+          <div className="relative flex-1 min-h-[20px]">
+            <input
+              ref={inputRef}
+              type="text"
+              value={inputBuf}
+              onChange={(e) => setInputBuf(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              className="absolute inset-0 w-full bg-transparent text-white/90 outline-none caret-cyan-400 font-mono text-xs"
+              style={{ caretColor: "#22d3ee" }}
+              spellCheck={false}
+              autoComplete="off"
+              autoFocus
+            />
+          </div>
         </div>
       </div>
     </div>
