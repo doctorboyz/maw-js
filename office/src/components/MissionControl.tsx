@@ -188,6 +188,21 @@ export const MissionControl = memo(function MissionControl({
     setPinnedPreview(null);
   }, []);
 
+  const pinnedRef = useRef<HTMLDivElement>(null);
+
+  // Click outside pinned card to close
+  useEffect(() => {
+    if (!pinnedPreview) return;
+    const handler = (e: MouseEvent) => {
+      if (pinnedRef.current && !pinnedRef.current.contains(e.target as Node)) {
+        setPinnedPreview(null);
+      }
+    };
+    // Delay to avoid the same click that pinned it from closing it
+    const t = setTimeout(() => document.addEventListener("mousedown", handler), 50);
+    return () => { clearTimeout(t); document.removeEventListener("mousedown", handler); };
+  }, [pinnedPreview]);
+
   // Build lookup: agent target -> { svgX, svgY, room style }
   const agentPositions = useMemo(() => {
     const map = new Map<string, { svgX: number; svgY: number; style: ReturnType<typeof roomStyle> }>();
@@ -562,6 +577,7 @@ export const MissionControl = memo(function MissionControl({
       {/* Pinned Preview Card — click to type, fullscreen to expand */}
       {pinnedPreview && (
         <div
+          ref={pinnedRef}
           className="absolute z-40 pointer-events-auto"
           style={{
             left: pinnedPreview.pos.x,
