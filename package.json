@@ -11,7 +11,8 @@
     "dev:office": "cd office && bunx vite",
     "dev:stop": "pm2 delete maw maw-dev 2>/dev/null; echo '→ dev stopped'",
     "deploy": "bun install && bun run build:office && pm2 delete maw-dev 2>/dev/null; pm2 restart maw",
-    "deploy:remote": "bun run build:office && rsync -az dist-office/ white.local:~/Code/github.com/Soul-Brews-Studio/maw-js/dist-office/ && rsync -az src/ white.local:~/Code/github.com/Soul-Brews-Studio/maw-js/src/ && ssh white.local 'export PATH=$HOME/.bun/bin:$PATH && pm2 restart maw' && echo '→ deployed to white.local:3456'"
+    "build:8bit": "cd office-8bit && bash build.sh",
+    "deploy:remote": "bun run build:office && rsync -az dist-office/ white.local:~/Code/github.com/Soul-Brews-Studio/maw-js/dist-office/ && rsync -az dist-8bit-office/ white.local:~/Code/github.com/Soul-Brews-Studio/maw-js/dist-8bit-office/ && rsync -az src/ white.local:~/Code/github.com/Soul-Brews-Studio/maw-js/src/ && ssh white.local 'export PATH=$HOME/.bun/bin:$PATH && pm2 restart maw' && echo '→ deployed to white.local:3456'"
   },
   "description": "maw.js — Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
   "dependencies": {
@@ -21,6 +22,7 @@
     "three": "^0.183.2"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@tailwindcss/vite": "^4.2.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
