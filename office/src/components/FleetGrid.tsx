@@ -101,19 +101,21 @@ export const FleetGrid = memo(function FleetGrid({
     setInputBufs(prev => ({ ...prev, [target]: val }));
   }, []);
 
-  /** Convert row element position to absolute coords within the scrollable container */
+  /** Convert row element position to absolute coords — card overlaps right side of row */
   const rowToAbsPos = useCallback((rowEl: HTMLElement) => {
     const container = containerRef.current;
     if (!container) return { x: 0, y: 0 };
     const containerRect = container.getBoundingClientRect();
     const rowRect = rowEl.getBoundingClientRect();
     const cardW = 420;
-    let x = rowRect.right - containerRect.left + 16;
-    if (containerRect.left + x + cardW > window.innerWidth) {
-      x = window.innerWidth - containerRect.left - cardW - 16;
-    }
+    // Align card's right edge with row's right edge (overlap on the right side of the row)
+    const rowRight = rowRect.right - containerRect.left;
+    let x = rowRight - cardW;
+    // Clamp: don't go off left edge
+    if (x < 8) x = 8;
+    // Y: aligned with row top, accounting for scroll
     const y = rowRect.top - containerRect.top + container.scrollTop;
-    return { x: Math.max(8, x), y: Math.max(8, y) };
+    return { x, y };
   }, []);
 
   // --- Hover callbacks ---
