@@ -191,9 +191,7 @@ async function cmdPulseAdd(title: string, opts: { oracle?: string; priority?: st
       ``,
       `When done:`,
       `1. Commit your work and push the branch`,
-      `2. Comment on the issue (gh issue comment) with: commit hash, files changed, summary`,
-      `3. Create a GitHub Discussion in the repo (gh api) category "Show and tell" titled "✅ #${issueNum}: ${title}" with your completion report`,
-      `4. Run: maw hey pulse "✅ #${issueNum} done — ${title}"`,
+      `2. Comment on the issue (gh issue comment) with: commit hash, files changed, brief summary`,
     ].join("\n");
     wakeOpts.prompt = prompt;
 
