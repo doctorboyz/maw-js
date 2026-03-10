@@ -5,6 +5,7 @@ import { Joystick } from "./Joystick";
 import { OracleSearch } from "./OracleSearch";
 import { SaiyanToasts } from "./SaiyanToasts";
 import { BottomStats } from "./BottomStats";
+import { FpsCounter } from "./FpsCounter";
 import { roomStyle } from "../lib/constants";
 import type { AgentState, Session, AgentEvent } from "../lib/types";
 import type { SaiyanCard } from "./SaiyanToasts";
@@ -30,6 +31,7 @@ export const MissionControl = memo(function MissionControl({
   eventLog,
   addEvent,
 }: MissionControlProps) {
+  const [groupSolo, setGroupSolo] = useState(true);
   const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
   const [hoverPreview, setHoverPreview] = useState<{ agent: AgentState; room: { label: string; accent: string }; pos: { x: number; y: number } } | null>(null);
   const [pinnedPreview, setPinnedPreview] = useState<{ agent: AgentState; room: { label: string; accent: string }; pos: { x: number; y: number }; svgX: number; svgY: number } | null>(null);
@@ -152,7 +154,7 @@ export const MissionControl = memo(function MissionControl({
     return map;
   }, [agents]);
 
-  // Layout: merge solo rooms into "Oracles" cluster, arrange in circle
+  // Layout: optionally merge solo rooms into "Oracles" cluster, arrange in circle
   const layout = useMemo(() => {
     const sessionList = sessions.map((s) => ({
       session: s,
@@ -160,21 +162,26 @@ export const MissionControl = memo(function MissionControl({
       style: roomStyle(s.name),
     }));
 
-    // Separate multi-agent rooms from solo rooms
-    const multi = sessionList.filter(s => s.agents.length > 1);
-    const soloAgents = sessionList.filter(s => s.agents.length === 1).flatMap(s => s.agents);
-
-    // Build virtual sessions: "Oracles" cluster + multi-agent rooms
     type LayoutItem = typeof sessionList[0];
-    const virtual: LayoutItem[] = [];
-    if (soloAgents.length > 0) {
-      virtual.push({
-        session: { name: "_oracles", windows: [] },
-        agents: soloAgents,
-        style: { accent: "#7e57c2", floor: "#1a1428", wall: "#120e1e", label: "Oracles" },
-      });
+    let virtual: LayoutItem[];
+
+    if (groupSolo) {
+      // Separate multi-agent rooms from solo rooms
+      const multi = sessionList.filter(s => s.agents.length > 1);
+      const soloAgents = sessionList.filter(s => s.agents.length === 1).flatMap(s => s.agents);
+
+      virtual = [];
+      if (soloAgents.length > 0) {
+        virtual.push({
+          session: { name: "_oracles", windows: [] },
+          agents: soloAgents,
+          style: { accent: "#7e57c2", floor: "#1a1428", wall: "#120e1e", label: "Oracles" },
+        });
+      }
+      virtual.push(...multi);
+    } else {
+      virtual = sessionList;
     }
-    virtual.push(...multi);
 
     const cx = 640, cy = 460;
     const radius = Math.min(370, 160 + virtual.length * 28);
@@ -185,7 +192,7 @@ export const MissionControl = memo(function MissionControl({
       const y = cy + Math.sin(angle) * radius;
       return { ...s, x, y };
     });
-  }, [sessions, sessionAgents]);
+  }, [sessions, sessionAgents, groupSolo]);
 
   // Persistent input buffer per agent (survives pin/unpin)
   const [inputBufs, setInputBufs] = useState<Record<string, string>>({});
@@ -499,8 +506,16 @@ export const MissionControl = memo(function MissionControl({
         })}
       </svg>
 
-      {/* Controls — bottom right: pan + zoom in one cluster */}
+      {/* Controls — bottom right: pan + zoom + group toggle */}
       <div className="absolute bottom-4 right-6 flex flex-col items-center gap-1">
+        <button
+          onClick={() => setGroupSolo(g => !g)}
+          className="w-8 h-8 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-[9px] text-white/50 hover:text-white hover:bg-white/10 cursor-pointer font-mono"
+          title={groupSolo ? "Show all rooms" : "Group solo oracles"}
+        >
+          {groupSolo ? "G" : "A"}
+        </button>
+        <div className="w-6 border-t border-white/[0.06] my-0.5" />
         <Joystick onPan={onJoystickPan} />
         <div className="w-6 border-t border-white/[0.06] my-0.5" />
         <button onClick={() => setZoom((z) => Math.min(3, z + 0.05))}
@@ -587,8 +602,9 @@ export const MissionControl = memo(function MissionControl({
       {/* Oracle Search overlay */}
       {showSearch && <OracleSearch onClose={() => setShowSearch(false)} />}
 
-      {/* Bottom stats */}
+      {/* Bottom stats + FPS */}
       <BottomStats agents={agents} />
+      <FpsCounter />
     </div>
   );
 });

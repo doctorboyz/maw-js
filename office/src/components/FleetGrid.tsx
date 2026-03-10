@@ -1,7 +1,9 @@
 import { memo, useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { AgentAvatar } from "./AgentAvatar";
+import { HoverPreviewCard } from "./HoverPreviewCard";
 import { roomStyle } from "../lib/constants";
 import { BottomStats } from "./BottomStats";
+import { useFps } from "./FpsCounter";
 import type { AgentState, Session, AgentEvent } from "../lib/types";
 
 interface FleetGridProps {
@@ -13,29 +15,6 @@ interface FleetGridProps {
   onSelectAgent: (agent: AgentState) => void;
   eventLog: AgentEvent[];
   addEvent: (target: string, type: AgentEvent["type"], detail: string) => void;
-}
-
-/** FPS counter — measures requestAnimationFrame rate */
-function useFps() {
-  const [fps, setFps] = useState(0);
-  useEffect(() => {
-    let frames = 0;
-    let last = performance.now();
-    let id: number;
-    const tick = () => {
-      frames++;
-      const now = performance.now();
-      if (now - last >= 1000) {
-        setFps(frames);
-        frames = 0;
-        last = now;
-      }
-      id = requestAnimationFrame(tick);
-    };
-    id = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(id);
-  }, []);
-  return fps;
 }
 
 /** Track visible agent targets via IntersectionObserver */
@@ -107,6 +86,44 @@ export const FleetGrid = memo(function FleetGrid({
 }: FleetGridProps) {
   const fps = useFps();
   const observe = useVisibleTargets(send);
+  const [pinnedAgent, setPinnedAgent] = useState<{ agent: AgentState; accent: string; label: string } | null>(null);
+  const pinnedRef = useRef<HTMLDivElement>(null);
+  const [inputBufs, setInputBufs] = useState<Record<string, string>>({});
+
+  // Click agent row → pin preview card (or go fullscreen if already pinned)
+  const onAgentClick = useCallback((agent: AgentState, accent: string, label: string) => {
+    if (pinnedAgent?.agent.target === agent.target) {
+      // Already pinned — open fullscreen terminal
+      setPinnedAgent(null);
+      onSelectAgent(agent);
+      return;
+    }
+    setPinnedAgent({ agent, accent, label });
+    send({ type: "subscribe", target: agent.target });
+  }, [pinnedAgent, onSelectAgent, send]);
+
+  const onPinnedFullscreen = useCallback(() => {
+    if (pinnedAgent) {
+      const agent = pinnedAgent.agent;
+      setPinnedAgent(null);
+      setTimeout(() => onSelectAgent(agent), 150);
+    }
+  }, [pinnedAgent, onSelectAgent]);
+
+  const onPinnedClose = useCallback(() => setPinnedAgent(null), []);
+
+  // Click outside pinned card to close
+  useEffect(() => {
+    if (!pinnedAgent) return;
+    const handler = (e: MouseEvent) => {
+      if (pinnedRef.current && !pinnedRef.current.contains(e.target as Node)) {
+        setPinnedAgent(null);
+      }
+    };
+    const t = setTimeout(() => document.addEventListener("mousedown", handler), 50);
+    return () => { clearTimeout(t); document.removeEventListener("mousedown", handler); };
+  }, [pinnedAgent]);
+
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggle = (name: string) => setCollapsed(prev => {
     const next = new Set(prev);
@@ -275,11 +292,11 @@ export const FleetGrid = memo(function FleetGrid({
                       }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = `${style.accent}10`; }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = isBusy ? `${style.accent}06` : "transparent"; }}
-                      onClick={() => onSelectAgent(agent)}
+                      onClick={() => onAgentClick(agent, style.accent, vr.label)}
                       role="button"
                       tabIndex={0}
                       aria-label={`${agent.name} - ${agent.status}`}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectAgent(agent); } }}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onAgentClick(agent, style.accent, vr.label); } }}
                     >
                       {/* Avatar */}
                       <div className="w-14 h-14 flex-shrink-0" style={{ overflow: "visible" }}>
@@ -291,7 +308,7 @@ export const FleetGrid = memo(function FleetGrid({
                             preview={agent.preview}
                             accent={style.accent}
                             saiyan={isSaiyan}
-                            onClick={() => onSelectAgent(agent)}
+                            onClick={() => onAgentClick(agent, style.accent, vr.label)}
                           />
                         </svg>
                       </div>
@@ -357,6 +374,32 @@ export const FleetGrid = memo(function FleetGrid({
       </div>
 
       <BottomStats agents={agents} eventLog={eventLog} />
+
+      {/* Pinned HoverPreviewCard — same component as Mission Control */}
+      {pinnedAgent && (
+        <div
+          className="fixed inset-0 z-40 flex items-start justify-center pt-16 bg-black/60 backdrop-blur-sm"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setPinnedAgent(null);
+          }}
+        >
+          <div ref={pinnedRef} style={{ maxWidth: 420 }}>
+            <HoverPreviewCard
+              agent={pinnedAgent.agent}
+              roomLabel={pinnedAgent.label}
+              accent={pinnedAgent.accent}
+              pinned
+              send={send}
+              onFullscreen={onPinnedFullscreen}
+              onClose={onPinnedClose}
+              eventLog={eventLog}
+              addEvent={addEvent}
+              externalInputBuf={inputBufs[pinnedAgent.agent.target] || ""}
+              onInputBufChange={(val) => setInputBufs(prev => ({ ...prev, [pinnedAgent.agent.target]: val }))}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 });
