@@ -6,26 +6,18 @@ import { agentSortKey } from "../lib/constants";
 import { useFleetStore } from "../lib/store";
 import { activeOracles, describeActivity, type FeedEvent, type FeedEventType } from "../lib/feed";
 
-// Simple string hash
-function hash(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return h;
-}
+const BUSY_TIMEOUT = 15_000; // 15s without feed → ready
+const IDLE_TIMEOUT = 60_000; // 60s without feed → idle
 
 export function useSessions() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [captureData, setCaptureData] = useState<Record<string, { preview: string; status: PaneStatus }>>({});
-  const pollTimer = useRef<ReturnType<typeof setTimeout>>();
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
 
-  // Track content hashes for change detection
-  const hashHistory = useRef<Record<string, { prev: number; curr: number; unchangedCount: number }>>({});
   const lastSoundTime = useRef(0);
   const [saiyanTargets, setSaiyanTargets] = useState<Set<string>>(new Set());
   const saiyanTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  // Track which signal is driving Saiyan: "H" = hash, "F" = feed, "HF" = both
   const saiyanSourceTimers = useRef<Record<string, { hash: number; feed: number }>>({});
   const [saiyanSources, setSaiyanSources] = useState<Record<string, string>>({});
   const [eventLog, setEventLog] = useState<AgentEvent[]>([]);
@@ -46,12 +38,11 @@ export function useSessions() {
   const markSlept = useFleetStore((s) => s.markSlept);
   const clearSlept = useFleetStore((s) => s.clearSlept);
 
-  // Feed-triggered Saiyan: map oracle name → tmux target for burst animation
+  // Feed-triggered Saiyan
   const agentsRef = useRef<AgentState[]>([]);
   const SAIYAN_FEED_EVENTS = new Set<FeedEventType>(["PreToolUse", "UserPromptSubmit", "SubagentStart"]);
-  const SAIYAN_DURATION = 10_000; // 10s from any signal (feed or hash)
+  const SAIYAN_DURATION = 10_000;
 
-  // Unified Saiyan trigger — called by both feed events and hash polling
   const extendSaiyan = useCallback((target: string, agentName: string, session: string, source: "H" | "F") => {
     const now = Date.now();
     if (now - lastSoundTime.current > 60000) {
@@ -62,15 +53,12 @@ export function useSessions() {
     setSaiyanTargets(prev => new Set(prev).add(target));
     saiyanTimers.current[target] = setTimeout(() => {
       setSaiyanTargets(prev => { const n = new Set(prev); n.delete(target); return n; });
-      // Clear source tracking when Saiyan expires
       setSaiyanSources(prev => { const n = { ...prev }; delete n[target]; return n; });
       delete saiyanSourceTimers.current[target];
     }, SAIYAN_DURATION);
-    // Track source: mark this source as active for 15s
     const st = saiyanSourceTimers.current[target] || { hash: 0, feed: 0 };
     if (source === "H") st.hash = now; else st.feed = now;
     saiyanSourceTimers.current[target] = st;
-    // Compute display: both active within 15s?
     const hashActive = now - st.hash < 15000;
     const feedActive = now - st.feed < 15000;
     const label = hashActive && feedActive ? "HF" : hashActive ? "H" : "F";
@@ -78,7 +66,6 @@ export function useSessions() {
     markBusy([{ target, name: agentName, session }]);
   }, [markBusy]);
 
-  // Stop events immediately drop Saiyan (agent finished)
   const SAIYAN_STOP_EVENTS = new Set<FeedEventType>(["Stop", "SessionEnd", "TaskCompleted"]);
 
   const dropSaiyan = useCallback((target: string) => {
@@ -91,19 +78,77 @@ export function useSessions() {
     delete saiyanSourceTimers.current[target];
   }, []);
 
+  // --- Feed-based status tracking ---
+  // oracle name → last feed timestamp
+  const feedLastSeen = useRef<Record<string, number>>({});
+
+  const FEED_BUSY_EVENTS = new Set<FeedEventType>(["PreToolUse", "PostToolUse", "UserPromptSubmit", "SubagentStart", "PostToolUseFailure"]);
+  const FEED_STOP_EVENTS = new Set<FeedEventType>(["Stop", "SessionEnd", "TaskCompleted", "Notification"]);
+
+  const updateStatusFromFeed = useCallback((event: FeedEvent) => {
+    const oracleName = `${event.oracle}-oracle`;
+    const agent = agentsRef.current.find(a => a.name === oracleName);
+    if (!agent) return;
+
+    const target = agent.target;
+
+    if (FEED_BUSY_EVENTS.has(event.event)) {
+      feedLastSeen.current[event.oracle] = Date.now();
+      setCaptureData(prev => {
+        const existing = prev[target];
+        if (existing?.status === "busy") return prev;
+        if (existing && existing.status !== "busy") addEvent(target, "status", `${existing.status} → busy`);
+        clearSlept(target);
+        return { ...prev, [target]: { preview: existing?.preview || "", status: "busy" } };
+      });
+    } else if (FEED_STOP_EVENTS.has(event.event)) {
+      feedLastSeen.current[event.oracle] = 0; // mark stopped
+      setCaptureData(prev => {
+        const existing = prev[target];
+        if (existing?.status === "ready") return prev;
+        if (existing && existing.status !== "ready") addEvent(target, "status", `${existing.status} → ready`);
+        return { ...prev, [target]: { preview: existing?.preview || "", status: "ready" } };
+      });
+    }
+  }, [addEvent, clearSlept]);
+
+  // Decay: busy → ready after 15s, ready → idle after 60s without feed events
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setCaptureData(prev => {
+        let next = prev;
+        for (const agent of agentsRef.current) {
+          if (!agent.name.endsWith("-oracle")) continue;
+          const oracleName = agent.name.replace(/-oracle$/, "");
+          const lastSeen = feedLastSeen.current[oracleName] || 0;
+          const existing = prev[agent.target];
+          if (!existing) continue;
+
+          if (existing.status === "busy" && lastSeen > 0 && now - lastSeen > BUSY_TIMEOUT) {
+            if (next === prev) next = { ...prev };
+            next[agent.target] = { ...existing, status: "ready" };
+          } else if (existing.status === "ready" && (lastSeen === 0 || now - lastSeen > IDLE_TIMEOUT)) {
+            if (next === prev) next = { ...prev };
+            next[agent.target] = { ...existing, status: "idle" };
+          }
+        }
+        return next;
+      });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   const triggerFeedSaiyan = useCallback((event: FeedEvent) => {
-    // Strict: only match primary -oracle windows, never task windows like hermes-bitkub
     const agent = agentsRef.current.find(a => a.name === `${event.oracle}-oracle`);
     if (!agent) return;
 
-    // Stop events → immediately drop Saiyan
     if (SAIYAN_STOP_EVENTS.has(event.event)) {
       dropSaiyan(agent.target);
       return;
     }
-    // Activity events → extend Saiyan (feed is the reliable signal)
     if (SAIYAN_FEED_EVENTS.has(event.event)) {
-      console.debug(`[feed] saiyan: ${event.oracle} event=${event.event} status=${agent.status}`);
+      console.debug(`[feed] saiyan: ${event.oracle} event=${event.event}`);
       extendSaiyan(agent.target, agent.name, agent.session, "F");
     }
   }, [extendSaiyan, dropSaiyan]);
@@ -112,23 +157,22 @@ export function useSessions() {
     if (data.type === "sessions") {
       setSessions(data.sessions);
     } else if (data.type === "recent") {
-      // Server-side recent agents → merge into zustand store
       const agents: { target: string; name: string; session: string }[] = data.agents || [];
       if (agents.length > 0) markBusy(agents);
     } else if (data.type === "feed") {
-      // Single real-time feed event
       const feedEvent = data.event as FeedEvent;
       setFeedEvents(prev => {
         const next = [...prev, feedEvent];
         return next.length > MAX_FEED ? next.slice(-MAX_FEED) : next;
       });
-      // Trigger Saiyan burst from feed activity
       triggerFeedSaiyan(feedEvent);
+      updateStatusFromFeed(feedEvent);
     } else if (data.type === "feed-history") {
-      // Batch of recent events on connect
-      setFeedEvents((data.events as FeedEvent[]).slice(-MAX_FEED));
+      const events = (data.events as FeedEvent[]).slice(-MAX_FEED);
+      setFeedEvents(events);
+      // Set initial status from recent feed events
+      for (const e of events) updateStatusFromFeed(e);
     } else if (data.type === "previews") {
-      // Lightweight preview updates from viewport-aware subscription
       const previews: Record<string, string> = data.data;
       setCaptureData((prev) => {
         let next = prev;
@@ -150,98 +194,7 @@ export function useSessions() {
     }
   }, []);
 
-  // Poll captures — detect busy by content change
-  useEffect(() => {
-    async function poll() {
-      const targets: string[] = [];
-      sessionsRef.current.forEach((s) =>
-        s.windows.forEach((w) => targets.push(`${s.name}:${w.index}`))
-      );
-      for (let i = 0; i < targets.length; i += 4) {
-        const batch = targets.slice(i, i + 4);
-        await Promise.allSettled(
-          batch.map(async (target) => {
-            try {
-              const res = await fetch(`/api/capture?target=${encodeURIComponent(target)}`);
-              const data = await res.json();
-              const raw = data.content || "";
-              const text = stripAnsi(raw);
-
-              // Exclude bottom 15% (status bar, prompt, timers, token counters)
-              const allLines = text.split("\n");
-              const cutoff = Math.max(1, Math.floor(allLines.length * 0.85));
-              const topPart = allLines.slice(0, cutoff).join("\n");
-              const contentHash = hash(topPart);
-
-              // Track hash changes
-              const entry = hashHistory.current[target] || { prev: 0, curr: 0, unchangedCount: 0 };
-              entry.prev = entry.curr;
-              entry.curr = contentHash;
-
-              if (entry.prev !== 0 && entry.prev !== entry.curr) {
-                // Content changed → busy
-                entry.unchangedCount = 0;
-              } else {
-                // Content same → increment stable count
-                entry.unchangedCount++;
-              }
-              hashHistory.current[target] = entry;
-
-              // Check bottom lines for known indicators
-              const lines = text.split("\n").filter((l: string) => l.trim());
-              const bottom = lines.slice(-5).join("\n");
-              const hasPrompt = bottom.includes("\u276f"); // ❯
-              const hasBusySign = /[∴✢⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏◐◑◒◓⣾⣽⣻⢿⡿⣟⣯⣷]/.test(bottom) || /● \w+\(/.test(bottom) || /\b(Read|Edit|Write|Bash|Grep|Glob|Agent)\b/.test(bottom); // Thinking/tool calls/Claude Code tools
-
-              // Determine status — only "busy" if explicit indicator found
-              let status: PaneStatus;
-              if (hasBusySign) {
-                // Explicit busy indicator always wins (spinners, tool names)
-                status = "busy";
-              } else if (hasPrompt) {
-                // Prompt visible → ready (regardless of recent changes)
-                status = "ready";
-              } else if (entry.prev === 0) {
-                // First poll, no prompt visible
-                status = "idle";
-              } else if (entry.unchangedCount <= 2) {
-                // Content changed recently + no prompt → likely busy
-                status = "busy";
-              } else if (entry.unchangedCount <= 6) {
-                // Cooling down, no prompt visible
-                status = "ready";
-              } else {
-                // Stable for long, no prompt
-                status = "idle";
-              }
-
-              const preview = (lines[lines.length - 1] || "").slice(0, 120);
-
-              setCaptureData((p) => {
-                const existing = p[target];
-                if (existing && existing.preview === preview && existing.status === status) return p;
-                // Log status change
-                if (existing && existing.status !== status) {
-                  addEvent(target, "status", `${existing.status} → ${status}`);
-                }
-                // Clear slept state when agent becomes busy again
-                if (status === "busy") clearSlept(target);
-                // Hash no longer triggers Saiyan — feed events only
-                // Hash still detects busy status for the badge
-                return { ...p, [target]: { preview, status } };
-              });
-            } catch {}
-          })
-        );
-      }
-      pollTimer.current = setTimeout(poll, 5000);
-    }
-    poll();
-    return () => clearTimeout(pollTimer.current);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Derive flat agent list (memoized to prevent re-renders)
+  // Derive flat agent list
   const agents: AgentState[] = useMemo(() => {
     const list = sessions.flatMap((s) =>
       s.windows.map((w) => {
@@ -263,10 +216,8 @@ export function useSessions() {
     return list;
   }, [sessions, captureData]);
 
-  // Compute active oracles from feed (memoized, 5min window)
   const feedActive = useMemo(() => activeOracles(feedEvents, 5 * 60_000), [feedEvents]);
 
-  // Per-agent feed history: oracle name → last 5 events (most recent first)
   const agentFeedLog = useMemo((): Map<string, FeedEvent[]> => {
     const map = new Map<string, FeedEvent[]>();
     for (let i = feedEvents.length - 1; i >= 0; i--) {
