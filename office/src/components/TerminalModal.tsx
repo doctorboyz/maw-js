@@ -1,8 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { ansiToHtml, processCapture } from "../lib/ansi";
+import { lazy, Suspense } from "react";
 import type { AgentState } from "../lib/types";
 
-// trimCapture replaced by shared processCapture from ansi.ts
+const XTerminal = lazy(() => import("./XTerminal").then(m => ({ default: m.XTerminal })));
 
 interface TerminalModalProps {
   agent: AgentState;
@@ -24,92 +23,10 @@ const STATUS_DOT: Record<string, string> = {
 };
 
 export function TerminalModal({ agent, send, onClose, onNavigate, onSelectSibling, siblings }: TerminalModalProps) {
-  const [content, setContent] = useState("");
-  const [inputBuf, setInputBuf] = useState("");
-  const termRef = useRef<HTMLDivElement>(null);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // Auto-focus input on open + when switching agents
-  useEffect(() => {
-    // Delay to ensure DOM is ready (needs >100ms when coming from pinned card unmount)
-    const t = setTimeout(() => inputRef.current?.focus(), 120);
-    return () => clearTimeout(t);
-  }, [agent.target]);
-
-  // Refocus input when clicking anywhere in the modal
-  useEffect(() => {
-    const el = wrapperRef.current;
-    if (!el) return;
-    const refocus = () => { setTimeout(() => inputRef.current?.focus(), 0); };
-    el.addEventListener("mousedown", refocus);
-    return () => el.removeEventListener("mousedown", refocus);
-  }, []);
-
-  useEffect(() => {
-    send({ type: "subscribe", target: agent.target });
-    const poll = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/capture?target=${encodeURIComponent(agent.target)}`);
-        const data = await res.json();
-        setContent(data.content || "");
-      } catch {}
-    }, 200);
-    return () => { clearInterval(poll); send({ type: "subscribe", target: "" }); };
-  }, [agent.target, send]);
-
-  const isFirstContent = useRef(true);
-  useEffect(() => {
-    const el = termRef.current;
-    if (el) {
-      // Always scroll to bottom on first content load
-      if (isFirstContent.current && content) {
-        isFirstContent.current = false;
-        el.scrollTop = el.scrollHeight;
-      } else {
-        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-        if (atBottom) el.scrollTop = el.scrollHeight;
-      }
-    }
-  }, [content]);
-
-  // Reset first-content flag when switching agents
-  useEffect(() => {
-    isFirstContent.current = true;
-  }, [agent.target]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
-    // Alt+Arrow to navigate between agents in same room
-    if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); onNavigate(-1); return; }
-    if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); onNavigate(1); return; }
-    // Alt+1-9 to jump to sibling by index
-    if (e.altKey && e.key >= "1" && e.key <= "9") {
-      const idx = parseInt(e.key) - 1;
-      if (idx < siblings.length) { e.preventDefault(); onSelectSibling(siblings[idx]); }
-      return;
-    }
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (inputBuf) { send({ type: "send", target: agent.target, text: inputBuf }); setInputBuf(""); }
-    } else if (e.key === "c" && e.ctrlKey) {
-      e.preventDefault(); setInputBuf("");
-    }
-  }, [inputBuf, agent.target, send, onClose, onNavigate]);
-
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    e.preventDefault();
-    const text = e.clipboardData.getData("text");
-    if (text) setInputBuf((b) => b + text);
-  }, []);
-
-  const displayName = cleanName(agent.name);
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md"
       onClick={(e) => e.target === e.currentTarget && onClose()}
-      ref={wrapperRef}
     >
       <div className="w-[90vw] max-w-[900px] h-[80vh] bg-[#0a0a0f] border border-white/[0.06] rounded-xl flex flex-col overflow-hidden shadow-2xl">
         {/* Header */}
@@ -147,7 +64,14 @@ export function TerminalModal({ agent, send, onClose, onNavigate, onSelectSiblin
             })}
           </div>
 
-          <div className="ml-auto flex items-center gap-3 shrink-0">
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => { if (confirm(`Restart ${agent.name}?`)) send({ type: "restart", target: agent.target }); }}
+              className="px-2 py-0.5 rounded text-[10px] font-mono text-white/30 hover:text-orange-400 hover:bg-orange-400/10 border border-transparent hover:border-orange-400/20 transition-all cursor-pointer"
+              title="Restart agent (Ctrl+C → relaunch)"
+            >
+              restart
+            </button>
             {siblings.length > 1 && (
               <span className="text-[9px] text-white/20 tracking-wider">Alt+1-{Math.min(9, siblings.length)}</span>
             )}
@@ -157,34 +81,21 @@ export function TerminalModal({ agent, send, onClose, onNavigate, onSelectSiblin
           </div>
         </div>
 
-        {/* Terminal output */}
-        <div
-          ref={termRef}
-          className="flex-1 px-4 py-3 overflow-y-auto font-mono text-[13px] leading-[1.35] text-[#cdd6f4] whitespace-pre-wrap break-all bg-[#0a0a0f]"
-          dangerouslySetInnerHTML={{ __html: ansiToHtml(processCapture(content)) }}
-        />
-
-        {/* Input */}
-        <div
-          className="flex items-center gap-2 px-4 py-2 bg-[#0e0e18] border-t border-white/[0.06] font-mono text-xs cursor-text"
-          onClick={() => inputRef.current?.focus()}
-        >
-          <span className="text-cyan-400 font-semibold shrink-0">&#x276f;</span>
-          <div className="relative flex-1 min-h-[20px]">
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputBuf}
-              onChange={(e) => setInputBuf(e.target.value)}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              className="absolute inset-0 w-full bg-transparent text-white/90 outline-none caret-cyan-400 font-mono text-xs"
-              style={{ caretColor: "#22d3ee" }}
-              spellCheck={false}
-              autoComplete="off"
-              autoFocus
+        {/* Terminal — xterm.js via PTY WebSocket */}
+        <div className="flex-1 overflow-hidden">
+          <Suspense fallback={
+            <div className="flex items-center justify-center h-full text-white/30 text-sm font-mono">
+              Loading terminal...
+            </div>
+          }>
+            <XTerminal
+              target={agent.target}
+              onClose={onClose}
+              onNavigate={onNavigate}
+              siblings={siblings}
+              onSelectSibling={onSelectSibling}
             />
-          </div>
+          </Suspense>
         </div>
       </div>
     </div>

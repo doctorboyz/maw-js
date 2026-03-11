@@ -1,4 +1,5 @@
 import { sendKeys, selectWindow, ssh } from "./ssh";
+import { buildCommand } from "./config";
 import type { MawWS, Handler, MawEngine } from "./types";
 
 /** Run an async action with standard ok/error response */
@@ -45,15 +46,27 @@ const stop: Handler = (ws, data) => {
 };
 
 const wake: Handler = (ws, data) => {
-  const cmd = data.command || "claude";
+  // Use client command if provided, otherwise resolve from config
+  const cmd = data.command || buildCommand(data.target?.split(":").pop() || "");
   runAction(ws, "wake", data.target, () => sendKeys(data.target, cmd + "\r"));
+};
+
+const restart: Handler = (ws, data) => {
+  const cmd = data.command || buildCommand(data.target?.split(":").pop() || "");
+  runAction(ws, "restart", data.target, async () => {
+    await sendKeys(data.target, "\x03"); // Ctrl+C
+    await new Promise(r => setTimeout(r, 2000));
+    await sendKeys(data.target, "\x03"); // Ctrl+C again (in case first was caught)
+    await new Promise(r => setTimeout(r, 500));
+    await sendKeys(data.target, cmd + "\r");
+  });
 };
 
 const spawn: Handler = (ws, data) => {
   const session = data.session;
   const name = data.name;
   const cwd = data.cwd || process.cwd();
-  const cmd = data.command || "claude";
+  const cmd = data.command || buildCommand(name);
   const target = `${session}:${name}`;
   runAction(ws, "spawn", target, async () => {
     await ssh(`tmux new-window -t '${session}' -n '${name}' -c '${cwd}'`);
@@ -70,5 +83,6 @@ export function registerBuiltinHandlers(engine: MawEngine) {
   engine.on("sleep", sleep);
   engine.on("stop", stop);
   engine.on("wake", wake);
+  engine.on("restart", restart);
   engine.on("spawn", spawn);
 }
