@@ -16,7 +16,11 @@ app.get("/api/sessions", async (c) => c.json(await listSessions()));
 app.get("/api/capture", async (c) => {
   const target = c.req.query("target");
   if (!target) return c.json({ error: "target required" }, 400);
-  return c.json({ content: await capture(target) });
+  try {
+    return c.json({ content: await capture(target) });
+  } catch {
+    return c.json({ content: "" });
+  }
 });
 
 app.get("/api/mirror", async (c) => {

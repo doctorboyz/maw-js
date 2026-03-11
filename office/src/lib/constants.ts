@@ -89,7 +89,7 @@ export const PREVIEW_CARD = {
 
 /** Guess launch command from agent/window name */
 export function guessCommand(agentName: string): string {
-  if (agentName.startsWith("codex-")) return "codex --dangerously-auto-approve";
+  if (agentName.startsWith("codex-")) return "codex -c 'model_reasoning_summary=\"detailed\"' -c 'model_reasoning_summary_format=\"experimental\"' --search --dangerously-auto-approve";
   if (agentName.startsWith("claude-") || agentName.endsWith("-oracle")) return "claude";
   return ""; // empty = just press Enter (restart shell)
 }
