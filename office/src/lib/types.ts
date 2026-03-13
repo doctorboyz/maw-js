@@ -2,6 +2,7 @@ export interface Window {
   index: number;
   name: string;
   active: boolean;
+  cwd?: string;
 }
 
 export interface Session {
@@ -19,6 +20,7 @@ export interface AgentState {
   active: boolean;
   preview: string;
   status: PaneStatus;
+  project?: string;
 }
 
 export interface AgentEvent {

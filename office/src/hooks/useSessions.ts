@@ -220,6 +220,13 @@ export function useSessions() {
       s.windows.map((w) => {
         const key = `${s.name}:${w.index}`;
         const cd = captureData[key];
+        // Derive project from cwd (basename, detect worktree)
+        let project: string | undefined;
+        if (w.cwd) {
+          const base = w.cwd.split("/").pop() || "";
+          const wtMatch = base.match(/[.-]wt-(?:\d+-)?(.+)$/);
+          project = wtMatch ? `wt:${wtMatch[1]}` : base;
+        }
         return {
           target: key,
           name: w.name,
@@ -228,6 +235,7 @@ export function useSessions() {
           active: w.active,
           preview: cd?.preview || "",
           status: cd?.status || "idle",
+          project,
         };
       })
     );

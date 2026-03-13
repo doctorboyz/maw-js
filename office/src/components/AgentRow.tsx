@@ -90,21 +90,23 @@ function AgentInfo({ agent, isBusy, displayName, accent, agoLabel, feedLog }: {
         }}>
           {agent.status}
         </span>
-        {feedLog && feedLog.length > 0 && feedLog[0].project && (() => {
-          const p = feedLog[0].project!;
-          const wtMatch = p.match(/[.-]wt-(?:\d+-)?(.+)$/);
-          if (wtMatch) {
-            return (
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded flex-shrink-0"
-                style={{ background: "rgba(168,85,247,0.15)", color: "#c084fc" }}>
-                wt:{wtMatch[1]}
-              </span>
-            );
+        {(() => {
+          let label: string | undefined;
+          let isWt = false;
+          if (feedLog && feedLog.length > 0 && feedLog[0].project) {
+            const p = feedLog[0].project!;
+            const wtMatch = p.match(/[.-]wt-(?:\d+-)?(.+)$/);
+            if (wtMatch) { label = `wt:${wtMatch[1]}`; isWt = true; }
+            else label = p;
+          } else if (agent.project) {
+            if (agent.project.startsWith("wt:")) { label = agent.project; isWt = true; }
+            else label = agent.project;
           }
+          if (!label) return null;
           return (
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded flex-shrink-0"
-              style={{ background: "rgba(99,102,241,0.12)", color: "#818cf8" }}>
-              {p}
+              style={{ background: isWt ? "rgba(168,85,247,0.15)" : "rgba(99,102,241,0.12)", color: isWt ? "#c084fc" : "#818cf8" }}>
+              {label}
             </span>
           );
         })()}
