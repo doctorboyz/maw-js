@@ -1,6 +1,8 @@
 import { listSessions, ssh } from "./ssh";
 import type { Session } from "./ssh";
 import { loadConfig, buildCommand, getEnvVars } from "./config";
+import { readdirSync, readFileSync } from "fs";
+import { join } from "path";
 
 /** Fetch a GitHub issue and build a prompt for claude -p */
 export async function fetchIssuePrompt(issueNum: number, repo?: string): Promise<string> {
@@ -38,8 +40,6 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
   }
 
   // 2. Fallback: check fleet configs for repo mapping
-  const { readdirSync, readFileSync } = await import("fs");
-  const { join } = await import("path");
   const fleetDir = join(import.meta.dir, "../fleet");
   try {
     for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json"))) {
@@ -75,16 +75,44 @@ export function getSessionMap(): Record<string, string> {
   return loadConfig().sessions;
 }
 
+/** Scan fleet/*.json for a config containing a window matching the oracle name */
+export function resolveFleetSession(oracle: string): string | null {
+  const fleetDir = join(import.meta.dir, "../fleet");
+  try {
+    for (const file of readdirSync(fleetDir).filter(f => f.endsWith(".json") && !f.endsWith(".disabled"))) {
+      const config = JSON.parse(readFileSync(join(fleetDir, file), "utf-8"));
+      const hasOracleWindow = (config.windows || []).some(
+        (w: any) => w.name === `${oracle}-oracle` || w.name === oracle
+      );
+      if (hasOracleWindow) return config.name;
+    }
+  } catch { /* fleet dir may not exist */ }
+  return null;
+}
+
 export async function detectSession(oracle: string): Promise<string | null> {
   const sessions = await listSessions();
+
+  // 1. Check manual session map
   const mapped = getSessionMap()[oracle];
   if (mapped) {
     const exists = sessions.find(s => s.name === mapped);
     if (exists) return mapped;
   }
-  return sessions.find(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${oracle}`))?.name
-    || sessions.find(s => s.name === oracle)?.name
-    || null;
+
+  // 2. Pattern match running sessions (e.g., "08-neo" for oracle "neo")
+  const patternMatch = sessions.find(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${oracle}`))?.name
+    || sessions.find(s => s.name === oracle)?.name;
+  if (patternMatch) return patternMatch;
+
+  // 3. Scan fleet configs for oracle → session name mapping
+  const fleetSession = resolveFleetSession(oracle);
+  if (fleetSession) {
+    const exists = sessions.find(s => s.name === fleetSession);
+    if (exists) return fleetSession;
+  }
+
+  return null;
 }
 
 /** Set config env vars on a tmux session (hidden from screen output) */
@@ -100,7 +128,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
   // Detect or create tmux session (spawn all worktrees if new)
   let session = await detectSession(oracle);
   if (!session) {
-    session = getSessionMap()[oracle] || oracle;
+    session = getSessionMap()[oracle] || resolveFleetSession(oracle) || oracle;
     // Create session with main window
     await ssh(`tmux new-session -d -s '${session}' -n '${oracle}' -c '${repoPath}'`);
     await setSessionEnv(session);
