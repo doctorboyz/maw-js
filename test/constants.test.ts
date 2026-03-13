@@ -38,7 +38,7 @@ describe("roomStyle", () => {
 
 describe("agentColor", () => {
   test("returns a hex color string", () => {
-    const color = agentColor("volt-oracle");
+    const color = agentColor("neo-oracle");
     expect(color).toMatch(/^#[0-9a-f]{6}$/i);
   });
 
@@ -47,7 +47,7 @@ describe("agentColor", () => {
   });
 
   test("different names can produce different colors", () => {
-    const colors = new Set(["volt", "pulse", "hermes", "nexus", "odin", "mother"].map(agentColor));
+    const colors = new Set(["neo", "pulse", "hermes", "nexus", "odin", "mother"].map(agentColor));
     expect(colors.size).toBeGreaterThan(1);
   });
 });

@@ -6,7 +6,7 @@ const MOCK_SESSIONS: Session[] = [
   {
     name: "1-oracles",
     windows: [
-      { index: 0, name: "volt-oracle", active: true },
+      { index: 0, name: "neo-oracle", active: true },
       { index: 1, name: "pulse-oracle", active: false },
       { index: 2, name: "hermes-oracle", active: false },
       { index: 3, name: "nexus-oracle", active: false },
@@ -29,11 +29,11 @@ const MOCK_SESSIONS: Session[] = [
 
 describe("findWindow", () => {
   test("finds by window name substring", () => {
-    expect(findWindow(MOCK_SESSIONS, "volt")).toBe("1-oracles:0");
+    expect(findWindow(MOCK_SESSIONS, "neo")).toBe("1-oracles:0");
   });
 
   test("finds case-insensitive", () => {
-    expect(findWindow(MOCK_SESSIONS, "VOLT")).toBe("1-oracles:0");
+    expect(findWindow(MOCK_SESSIONS, "NEO")).toBe("1-oracles:0");
     expect(findWindow(MOCK_SESSIONS, "Pulse")).toBe("1-oracles:1");
   });
 

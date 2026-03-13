@@ -8,8 +8,8 @@
 
 ```bash
 bunx --bun github:Soul-Brews-Studio/maw-js ls
-bunx --bun github:Soul-Brews-Studio/maw-js peek hermes
-bunx --bun github:Soul-Brews-Studio/maw-js hey hermes "how are you"
+bunx --bun github:Soul-Brews-Studio/maw-js peek neo
+bunx --bun github:Soul-Brews-Studio/maw-js hey neo "how are you"
 ```
 
 ## Install (global)
@@ -29,10 +29,10 @@ maw ls
 ```bash
 maw ls                      # list sessions + windows
 maw peek                    # one-line summary per agent
-maw peek hermes             # see hermes's screen
-maw hey hermes how are you  # send message to hermes
-maw hermes /recap           # shorthand: agent + message
-maw hermes                  # shorthand: peek agent
+maw peek neo                # see neo's screen
+maw hey neo how are you     # send message to neo
+maw neo /recap              # shorthand: agent + message
+maw neo                     # shorthand: peek agent
 maw serve                   # web UI on :3456
 ```
 

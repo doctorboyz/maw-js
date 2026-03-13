@@ -18,7 +18,8 @@ const GROUPS: Record<string, { session: string; order: number }> = {
   // Command layer (01-04) — always on
   pulse: { session: "pulse", order: 1 },
   hermes: { session: "hermes", order: 2 },
-  homekeeper: { session: "homekeeper", order: 3 },
+  neo: { session: "neo", order: 3 },
+  homekeeper: { session: "homekeeper", order: 4 },
   // Project layer (05-10) — on demand
   volt: { session: "volt", order: 5 },
   floodboy: { session: "floodboy", order: 6 },

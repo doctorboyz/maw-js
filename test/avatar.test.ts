@@ -3,7 +3,7 @@ import { generateAvatar } from "../office/src/lib/avatar";
 
 describe("generateAvatar", () => {
   test("returns all required fields", () => {
-    const avatar = generateAvatar("volt-oracle");
+    const avatar = generateAvatar("neo-oracle");
     expect(avatar.hairStyle).toBeTruthy();
     expect(avatar.eyeStyle).toBeTruthy();
     expect(avatar.skinColor).toMatch(/^#/);
@@ -18,7 +18,7 @@ describe("generateAvatar", () => {
   });
 
   test("different IDs can produce different avatars", () => {
-    const a = generateAvatar("volt-oracle");
+    const a = generateAvatar("neo-oracle");
     const b = generateAvatar("hermes-oracle");
     // At least one field should differ
     const same = a.hairStyle === b.hairStyle && a.eyeStyle === b.eyeStyle &&

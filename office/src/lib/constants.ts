@@ -11,6 +11,7 @@ export const ROOM_COLORS: Record<string, { accent: string; floor: string; wall: 
   "05-tools":      { accent: "#ef5350", floor: "#281418", wall: "#200e12", label: "Tools" },
   "06-solar":      { accent: "#fdd835", floor: "#282814", wall: "#20200e", label: "Solar" },
   "07-hermes":     { accent: "#26a69a", floor: "#142824", wall: "#0e201a", label: "Hermes" },
+  "08-neo":        { accent: "#e040fb", floor: "#1e1428", wall: "#160e1e", label: "Neo" },
   "09-pulse":      { accent: "#ff5252", floor: "#281414", wall: "#200e0e", label: "Pulse" },
   "10-calliope":   { accent: "#69f0ae", floor: "#142818", wall: "#0e2010", label: "Calliope" },
   "11-homekeeper": { accent: "#448aff", floor: "#141a28", wall: "#0e1420", label: "Homekeeper" },
@@ -31,9 +32,10 @@ export function roomStyle(sessionName: string) {
 
 // Preferred agent display order (lower = first, unlisted = 999)
 export const AGENT_ORDER: Record<string, number> = {
-  "nexus-oracle": 0,
-  "hermes-oracle": 1,
-  "pulse-oracle": 2,
+  "neo-oracle": 0,
+  "nexus-oracle": 1,
+  "hermes-oracle": 2,
+  "pulse-oracle": 3,
 };
 
 export function agentSortKey(name: string): number {

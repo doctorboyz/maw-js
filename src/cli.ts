@@ -77,7 +77,7 @@ function usage() {
   maw about <oracle>           Oracle profile — session, worktrees, fleet
   maw oracle ls               Fleet status (awake/sleeping/worktrees)
   maw overview              War-room: all oracles in split panes
-  maw overview hermes pulse Only specific oracles
+  maw overview neo hermes   Only specific oracles
   maw overview --kill       Tear down overview
   maw pulse add "task" [opts] Create issue + wake oracle
   maw <agent> <msg...>        Shorthand for hey
@@ -85,25 +85,25 @@ function usage() {
   maw serve [port]            Start web UI (default: 3456)
 
 \x1b[33mWake modes:\x1b[0m
-  maw wake hermes             Wake main repo
+  maw wake neo                Wake main repo
   maw wake hermes bitkub      Wake existing worktree
-  maw wake hermes --new free  Create worktree + wake
-  maw wake hermes --issue 5   Fetch issue #5 + send as claude -p prompt
-  maw wake hermes --issue 5 --repo org/repo   Explicit repo
+  maw wake neo --new free     Create worktree + wake
+  maw wake neo --issue 5      Fetch issue #5 + send as claude -p prompt
+  maw wake neo --issue 5 --repo org/repo   Explicit repo
 
 \x1b[33mPulse add:\x1b[0m
   maw pulse ls                Board table (terminal)
   maw pulse ls --sync         + update daily thread checkboxes
-  maw pulse add "Fix bug" --oracle hermes
-  maw pulse add "task" --oracle hermes --wt oracle-v2
+  maw pulse add "Fix bug" --oracle neo
+  maw pulse add "task" --oracle neo --wt oracle-v2
 
 \x1b[33mEnv:\x1b[0m
   MAW_HOST=white.local        SSH target (default: white.local)
 
 \x1b[33mExamples:\x1b[0m
-  maw wake hermes --new bitkub Create worktree + start claude
-  maw pulse add "Fix IME" --oracle hermes --priority P1
-  maw hey hermes what is your status
+  maw wake neo --new bitkub   Create worktree + start claude
+  maw pulse add "Fix IME" --oracle neo --priority P1
+  maw hey neo what is your status
   maw serve 8080`);
 }
 

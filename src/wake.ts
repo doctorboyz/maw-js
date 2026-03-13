@@ -100,7 +100,7 @@ export async function detectSession(oracle: string): Promise<string | null> {
     if (exists) return mapped;
   }
 
-  // 2. Pattern match running sessions (e.g., "02-hermes" for oracle "hermes")
+  // 2. Pattern match running sessions (e.g., "08-neo" for oracle "neo")
   const patternMatch = sessions.find(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${oracle}`))?.name
     || sessions.find(s => s.name === oracle)?.name;
   if (patternMatch) return patternMatch;

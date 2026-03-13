@@ -126,10 +126,10 @@ describe("Tmux", () => {
 
   describe("listWindows", () => {
     test("parses window list", async () => {
-      sshResult = "0:volt-oracle:1\n1:pulse-oracle:0\n2:hermes-oracle:0";
+      sshResult = "0:neo-oracle:1\n1:pulse-oracle:0\n2:hermes-oracle:0";
       const windows = await t.listWindows("oracles");
       expect(windows).toEqual([
-        { index: 0, name: "volt-oracle", active: true },
+        { index: 0, name: "neo-oracle", active: true },
         { index: 1, name: "pulse-oracle", active: false },
         { index: 2, name: "hermes-oracle", active: false },
       ]);
