@@ -11,6 +11,7 @@ import { cmdOracleList, cmdOracleAbout } from "./commands/oracle";
 import { cmdWakeAll, cmdSleep, cmdFleetLs, cmdFleetRenumber, cmdFleetValidate, cmdFleetSync } from "./commands/fleet";
 import { cmdFleetInit } from "./commands/fleet-init";
 import { cmdDone } from "./commands/done";
+import { cmdSleepOne } from "./commands/sleep";
 import { cmdLogLs, cmdLogExport, cmdLogChat } from "./commands/log";
 import { cmdTokens } from "./commands/tokens";
 
@@ -34,6 +35,7 @@ function usage() {
   maw wake all [--kill]       Wake fleet (01-15 + 99, skips dormant 20+)
   maw wake all --all          Wake ALL including dormant
   maw wake all --resume       Wake fleet + send /recap to active board items
+  maw sleep <oracle> [window] Gracefully stop one oracle window
   maw stop                    Stop all fleet sessions
   maw about <oracle>           Oracle profile — session, worktrees, fleet
   maw oracle ls               Fleet status (awake/sleeping/worktrees)
@@ -154,8 +156,17 @@ if (cmd === "--version" || cmd === "-v") {
 } else if (cmd === "done" || cmd === "finish") {
   if (!args[1]) { console.error("usage: maw done <window-name>\n       e.g. maw done neo-freelance"); process.exit(1); }
   await cmdDone(args[1]);
-} else if (cmd === "stop" || cmd === "sleep" || cmd === "rest") {
+} else if (cmd === "stop" || cmd === "rest") {
   await cmdSleep();
+} else if (cmd === "sleep") {
+  if (!args[1]) {
+    // No args: fleet-wide sleep (same as maw stop)
+    await cmdSleep();
+  } else if (args[1] === "--all-done") {
+    console.log("\x1b[90m(placeholder) maw sleep --all-done — sleep ALL agents. Not yet implemented.\x1b[0m");
+  } else {
+    await cmdSleepOne(args[1], args[2]);
+  }
 } else if (cmd === "wake") {
   if (!args[1]) { console.error("usage: maw wake <oracle> [task] [--new <name>]\n       maw wake all [--kill]"); process.exit(1); }
   if (args[1].toLowerCase() === "all") {
