@@ -1,7 +1,8 @@
 import { listSessions, ssh } from "../ssh";
 import { loadConfig } from "../config";
-import { readdirSync, readFileSync, writeFileSync } from "fs";
+import { readdirSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
+import { homedir } from "os";
 
 const FLEET_DIR = join(import.meta.dir, "../../fleet");
 
@@ -25,6 +26,20 @@ export async function cmdDone(windowName_: string) {
   for (const s of sessions) {
     const w = s.windows.find(w => w.name.toLowerCase() === windowNameLower);
     if (w) { sessionName = s.name; windowIndex = w.index; windowName = w.name; break; }
+  }
+
+  // 0. Signal parent inbox (#81) — write before kill so parent knows
+  const from = process.env.CLAUDE_AGENT_NAME || windowName;
+  const parentSession = sessionName;
+  if (parentSession) {
+    // Parent = session's main window (index 1 or lowest)
+    const parentWindow = sessions.find(s => s.name === parentSession)?.windows[0]?.name;
+    if (parentWindow) {
+      const parentTarget = parentWindow.replace(/[^a-zA-Z0-9_-]/g, "");
+      const inboxDir = join(homedir(), ".oracle", "inbox");
+      const signal = JSON.stringify({ ts: new Date().toISOString(), from, type: "done", msg: `worktree ${windowName} completed`, thread: null }) + "\n";
+      try { mkdirSync(inboxDir, { recursive: true }); appendFileSync(join(inboxDir, `${parentTarget}.jsonl`), signal); } catch {}
+    }
   }
 
   // 1. Kill tmux window

@@ -94,5 +94,13 @@ export async function cmdSend(query: string, message: string, force = false) {
   const line = JSON.stringify({ ts: new Date().toISOString(), from, to: query, target, msg: message, host, sid }) + "\n";
   try { await mkdir(logDir, { recursive: true }); await appendFile(logFile, line); } catch {}
 
+  // Signal inbox — write to target's inbox so parent hook can read (#81)
+  const inboxDir = join(homedir(), ".oracle", "inbox");
+  const inboxTarget = query.replace(/[^a-zA-Z0-9_-]/g, "");
+  if (inboxTarget) {
+    const signal = JSON.stringify({ ts: new Date().toISOString(), from, type: "msg", msg: message, thread: null }) + "\n";
+    try { await mkdir(inboxDir, { recursive: true }); await appendFile(join(inboxDir, `${inboxTarget}.jsonl`), signal); } catch {}
+  }
+
   console.log(`\x1b[32msent\x1b[0m → ${target}: ${message}`);
 }
