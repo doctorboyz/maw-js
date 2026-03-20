@@ -402,8 +402,8 @@ async function respawnMissingWorktrees(sessions: FleetSession[]): Promise<number
       // Get running windows for this session
       let runningWindows: string[] = [];
       try {
-        const winOut = await ssh(`tmux list-windows -t '${sess.name}' -F '#{window_name}' 2>/dev/null`);
-        runningWindows = winOut.trim().split("\n").filter(Boolean);
+        const windows = await tmux.listWindows(sess.name);
+        runningWindows = windows.map(w => w.name);
       } catch { continue; }
 
       for (const wtPath of wtPaths) {
@@ -418,8 +418,9 @@ async function respawnMissingWorktrees(sessions: FleetSession[]): Promise<number
         if (runningWindows.includes(windowName) || runningWindows.includes(altName)) continue;
 
         try {
-          await ssh(`tmux new-window -t '${sess.name}' -n '${windowName}' -c '${wtPath}'`);
-          await ssh(`tmux send-keys -t '${sess.name}:${windowName}' '${buildCommand(windowName)}' Enter`);
+          await tmux.newWindow(sess.name, windowName, { cwd: wtPath });
+          await new Promise(r => setTimeout(r, 300));
+          await tmux.sendText(`${sess.name}:${windowName}`, buildCommand(windowName));
           console.log(`  \x1b[32m↻\x1b[0m ${windowName} (discovered on disk)`);
           spawned++;
         } catch { /* window creation failed */ }
