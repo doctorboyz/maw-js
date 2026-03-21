@@ -53,7 +53,7 @@ export const MissionControl = memo(function MissionControl({
   }, []);
 
   const [zoom, setZoom] = useState(0.9);
-  const [pan, setPan] = useState({ x: 0, y: -120 });
+  const [pan, setPan] = useState({ x: 0, y: 120 });
   const [isPanning, setIsPanning] = useState(false);
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
