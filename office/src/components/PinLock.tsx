@@ -43,6 +43,7 @@ export function PinLock({ children }: { children: React.ReactNode }) {
           .then(data => {
             if (data.ok) {
               sessionStorage.setItem(STORAGE_KEY, "1");
+              window.location.hash = "mission";
               setUnlocked(true);
             } else {
               setError(true);
