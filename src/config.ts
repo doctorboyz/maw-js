@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
+import { CONFIG_FILE } from "./paths";
 
 export interface MawConfig {
   host: string;
@@ -9,6 +10,7 @@ export interface MawConfig {
   env: Record<string, string>;
   commands: Record<string, string>;
   sessions: Record<string, string>;
+  tmuxSocket?: string;
 }
 
 const DEFAULTS: MawConfig = {
@@ -25,9 +27,8 @@ let cached: MawConfig | null = null;
 
 export function loadConfig(): MawConfig {
   if (cached) return cached;
-  const configPath = join(import.meta.dir, "../maw.config.json");
   try {
-    const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+    const raw = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
     cached = { ...DEFAULTS, ...raw };
   } catch {
     cached = { ...DEFAULTS };
@@ -42,10 +43,9 @@ export function resetConfig() {
 
 /** Write config to maw.config.json and reset cache */
 export function saveConfig(update: Partial<MawConfig>) {
-  const configPath = join(import.meta.dir, "../maw.config.json");
   const current = loadConfig();
   const merged = { ...current, ...update };
-  writeFileSync(configPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+  writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2) + "\n", "utf-8");
   resetConfig(); // clear cache so next loadConfig() reads fresh
   return loadConfig();
 }
