@@ -151,13 +151,9 @@ export function XTerminal({ target, onClose, onNavigate, siblings, onSelectSibli
         }
       });
 
-      // Modal navigation shortcuts (intercept before xterm processes them)
+      // Esc always goes to tmux — close modal via X button only
       term.attachCustomKeyEventHandler((e) => {
         if (e.type !== "keydown") return true;
-        if (e.key === "Escape" && !e.altKey && !e.ctrlKey && !e.shiftKey) {
-          onCloseRef.current();
-          return false;
-        }
         if (e.altKey && e.key === "ArrowLeft") { onNavigateRef.current(-1); return false; }
         if (e.altKey && e.key === "ArrowRight") { onNavigateRef.current(1); return false; }
         if (e.altKey && e.key >= "1" && e.key <= "9") {
