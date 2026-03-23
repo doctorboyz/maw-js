@@ -138,6 +138,64 @@ export class MawEngine {
     } catch {}
   }
 
+  // --- Hash-based status detection ---
+  private agentHashes = new Map<string, { hash: string; changedAt: number; status: string }>();
+  private statusInterval: ReturnType<typeof setInterval> | null = null;
+
+  private async detectStatus() {
+    if (this.clients.size === 0 || this.cachedSessions.length === 0) return;
+    const targets = this.cachedSessions.flatMap(s =>
+      s.windows.map(w => ({ target: `${s.name}:${w.index}`, name: w.name, session: s.name }))
+    );
+
+    await Promise.allSettled(targets.map(async ({ target, name, session }) => {
+      try {
+        const content = await capture(target, 5);
+        const hash = Bun.hash(content).toString(36);
+        const prev = this.agentHashes.get(target);
+        const now = Date.now();
+
+        let status = "idle";
+        if (!prev) {
+          this.agentHashes.set(target, { hash, changedAt: now, status: "idle" });
+          return;
+        }
+
+        if (hash !== prev.hash) {
+          // Screen changed → busy
+          status = "busy";
+          this.agentHashes.set(target, { hash, changedAt: now, status });
+        } else if (now - prev.changedAt < 15_000) {
+          // Recently changed → still busy
+          status = "busy";
+        } else if (now - prev.changedAt < 60_000) {
+          // Stable for 15-60s → ready
+          status = "ready";
+        } else {
+          // Stable for 60s+ → idle
+          status = "idle";
+        }
+
+        if (status !== prev.status) {
+          this.agentHashes.set(target, { ...prev, hash, status });
+          // Broadcast as feed event so UI detects it
+          const event: FeedEvent = {
+            timestamp: new Date().toISOString(),
+            oracle: name.replace(/-oracle$/, ""),
+            host: "local",
+            event: status === "busy" ? "PreToolUse" : "Stop",
+            project: session,
+            sessionId: "",
+            message: status === "busy" ? "screen activity detected" : "screen stable",
+            ts: now,
+          };
+          const msg = JSON.stringify({ type: "feed", event });
+          for (const ws of this.clients) ws.send(msg);
+        }
+      } catch {}
+    }));
+  }
+
   // --- Interval lifecycle ---
 
   private startIntervals() {
@@ -149,6 +207,8 @@ export class MawEngine {
     this.previewInterval = setInterval(() => {
       for (const ws of this.clients) this.pushPreviews(ws);
     }, 2000);
+    // Hash-based status detection every 3s
+    this.statusInterval = setInterval(() => this.detectStatus(), 3000);
 
     // Subscribe to feed events from HTTP POST /api/feed
     const listener = (event: FeedEvent) => {
@@ -164,6 +224,7 @@ export class MawEngine {
     if (this.captureInterval) { clearInterval(this.captureInterval); this.captureInterval = null; }
     if (this.sessionInterval) { clearInterval(this.sessionInterval); this.sessionInterval = null; }
     if (this.previewInterval) { clearInterval(this.previewInterval); this.previewInterval = null; }
+    if (this.statusInterval) { clearInterval(this.statusInterval); this.statusInterval = null; }
     if (this.feedUnsub) { this.feedUnsub(); this.feedUnsub = null; }
   }
 }
