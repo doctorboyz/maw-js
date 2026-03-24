@@ -14,6 +14,23 @@ interface SessionInfo {
   windows: { index: number; name: string; active: boolean }[];
 }
 
+/** Strip Claude Code status bar lines before hashing (they change constantly even when idle) */
+function stripStatusBar(content: string): string {
+  return content.split('\n').filter(line => {
+    const plain = line.replace(/\x1b\[[0-9;]*m/g, '');
+    if (/^[\s─━]+$/.test(plain)) return false;
+    if (/📁/.test(plain)) return false;
+    if (/📡/.test(plain)) return false;
+    if (/⏵/.test(plain)) return false;
+    if (/^\s*❯\s*$/.test(plain)) return false;
+    if (/current:.*latest:/.test(plain)) return false;
+    if (/bypass permissions/.test(plain)) return false;
+    if (/auto-accept/.test(plain)) return false;
+    if (/^\s*$/.test(plain)) return false;
+    return true;
+  }).join('\n');
+}
+
 /**
  * Hybrid status detection: pane command + screen hash.
  * - Not running claude → idle
@@ -49,7 +66,7 @@ export class StatusDetector {
       const cmd = (cmds[target] || "").toLowerCase();
       const isAgent = /claude|codex|node/i.test(cmd);
       const content = contentMap.get(target) || "";
-      const hash = Bun.hash(content).toString(36);
+      const hash = Bun.hash(stripStatusBar(content)).toString(36);
       const prev = this.state.get(target);
 
       let status: string;
