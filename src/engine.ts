@@ -2,7 +2,7 @@ import { tmux } from "./tmux";
 import { registerBuiltinHandlers } from "./handlers";
 import { pushCapture, pushPreviews, broadcastSessions, sendBusyAgents } from "./engine.capture";
 import { StatusDetector } from "./engine.status";
-import { scanTeams } from "./engine.teams";
+import { broadcastTeams } from "./engine.teams";
 import type { FeedEvent } from "./lib/feed";
 import type { MawWS, Handler } from "./types";
 

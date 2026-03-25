@@ -153,6 +153,16 @@ async function setSessionEnv(session: string): Promise<void> {
   }
 }
 
+function sanitizeBranchName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9._\-]/g, "")
+    .replace(/\.{2,}/g, ".")
+    .replace(/^[-.]|[-.]$/g, "")
+    .slice(0, 50);
+}
+
 export async function cmdWake(oracle: string, opts: { task?: string; newWt?: string; prompt?: string }): Promise<string> {
   const { repoPath, repoName, parentDir } = await resolveOracle(oracle);
 
@@ -223,7 +233,8 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
   let windowName = `${oracle}-oracle`;
 
   if (opts.newWt || opts.task) {
-    const name = opts.newWt || opts.task!;
+    const rawName = opts.newWt || opts.task!;
+    const name = sanitizeBranchName(rawName);
     const worktrees = await findWorktrees(parentDir, repoName);
 
     // Try to find existing worktree matching this name
