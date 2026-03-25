@@ -1,7 +1,12 @@
 node_modules/
-dist-office/
+dist/
+dist-*/
 maw.config.json
 ui-state.json
+
+# Build artifacts
+wasm-office/target/
+wasm-vm/
 
 # Bun global link artifacts
 ~/
