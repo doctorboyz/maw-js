@@ -241,6 +241,7 @@ orbEl.style.boxShadow = `0 0 60px ${theme.color}15, inset 0 0 40px ${theme.color
 let state = 'idle'; // idle, listening, thinking, speaking
 let recognition = null;
 let history = [];
+let oracleTarget = ''; // tmux target e.g. "03-neo:1"
 const messagesEl = document.getElementById('messages');
 const statusEl = document.getElementById('status');
 const textInput = document.getElementById('textInput');
@@ -302,52 +303,79 @@ let lastFeedText = '';
 function connectFeed() {
   const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   feedWs = new WebSocket(`${wsProto}//${location.host}/ws`);
+
+  feedWs.onopen = () => {
+    // Subscribe to oracle's terminal capture
+    feedWs.send(JSON.stringify({ type: 'subscribe', target: oracleTarget }));
+  };
+
   feedWs.onmessage = (e) => {
     try {
       const msg = JSON.parse(e.data);
 
-      // Watch feed events for our oracle
-      if (msg.type === 'feed' && msg.events) {
-        for (const ev of msg.events) {
-          if (!ev.session?.includes(oracle)) continue;
-          if (state !== 'thinking') continue;
-
-          // Show streaming text
-          const text = ev.preview || ev.text || '';
-          if (text && text !== lastFeedText) {
-            lastFeedText = text;
-            if (!currentResponseDiv) {
-              currentResponseDiv = document.createElement('div');
-              currentResponseDiv.className = 'msg ai';
-              messagesEl.appendChild(currentResponseDiv);
+      // Session data — find our oracle's target
+      if (msg.type === 'sessions') {
+        for (const s of msg.sessions || []) {
+          for (const w of s.windows || []) {
+            if (w.name === `${oracle}-oracle`) {
+              oracleTarget = `${s.name}:${w.index}`;
+              // Subscribe to this target's capture
+              feedWs.send(JSON.stringify({ type: 'subscribe', target: oracleTarget }));
             }
-            currentResponseDiv.textContent = text;
-            messagesEl.scrollTop = messagesEl.scrollHeight;
-
-            // Reset timeout — oracle is still producing output
-            clearTimeout(responseTimeout);
-            responseTimeout = setTimeout(finishResponse, 3000);
           }
         }
       }
 
-      // Also watch capture/preview for our oracle's windows
-      if (msg.type === 'previews' && state === 'thinking') {
-        for (const [target, preview] of Object.entries(msg.previews || {})) {
-          if (!target.includes(oracle)) continue;
-          const text = (preview || '').toString().trim();
-          if (text && text.length > 10 && text !== lastFeedText) {
-            lastFeedText = text;
+      // Terminal content — this is the live stream from the oracle
+      if (msg.type === 'content' && state === 'thinking') {
+        const text = (msg.data || '').toString().trim();
+        if (text && text.length > 5) {
+          // Extract meaningful lines (skip status bars, prompts)
+          const lines = text.split('\n').filter(l => {
+            const t = l.trim();
+            if (!t) return false;
+            if (t.startsWith('❯') || t.startsWith('📁') || t.startsWith('📡') || t.startsWith('⏵⏵')) return false;
+            if (t.includes('tokens') && t.includes('context')) return false;
+            if (t.includes('bypass permissions')) return false;
+            if (t.includes('shift+tab to cycle')) return false;
+            return true;
+          });
+
+          const cleanText = lines.join('\n').trim();
+          if (cleanText && cleanText !== lastFeedText && cleanText.length > 3) {
+            lastFeedText = cleanText;
             if (!currentResponseDiv) {
               currentResponseDiv = document.createElement('div');
               currentResponseDiv.className = 'msg ai';
               messagesEl.appendChild(currentResponseDiv);
             }
-            currentResponseDiv.textContent = text;
+            currentResponseDiv.textContent = cleanText;
+            currentResponseDiv.style.whiteSpace = 'pre-wrap';
             messagesEl.scrollTop = messagesEl.scrollHeight;
 
             clearTimeout(responseTimeout);
-            responseTimeout = setTimeout(finishResponse, 3000);
+            responseTimeout = setTimeout(finishResponse, 4000);
+          }
+        }
+      }
+
+      // Also capture preview updates
+      if (msg.type === 'capture' && msg.statuses && state === 'thinking') {
+        for (const [target, info] of Object.entries(msg.statuses || {})) {
+          if (!target.includes(oracle)) continue;
+          const preview = (info && typeof info === 'object') ? (info.preview || '') : '';
+          if (preview && preview.length > 10 && preview !== lastFeedText) {
+            lastFeedText = preview;
+            if (!currentResponseDiv) {
+              currentResponseDiv = document.createElement('div');
+              currentResponseDiv.className = 'msg ai';
+              messagesEl.appendChild(currentResponseDiv);
+            }
+            currentResponseDiv.textContent = preview;
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+
+            clearTimeout(responseTimeout);
+            responseTimeout = setTimeout(finishResponse, 4000);
           }
         }
       }
@@ -399,9 +427,75 @@ async function sendMessage(text) {
       setState('idle');
       return;
     }
-    // Message sent to oracle — now watch feed for response
-    // finishResponse() will be called when output stops (3s timeout)
-    responseTimeout = setTimeout(finishResponse, 8000); // max wait 8s
+    oracleTarget = data.target;
+
+    // Poll terminal capture every 500ms to stream the response
+    let pollCount = 0;
+    const maxPolls = 30; // 15 seconds max
+    const pollInterval = setInterval(async () => {
+      pollCount++;
+      if (state !== 'thinking' || pollCount > maxPolls) {
+        clearInterval(pollInterval);
+        if (state === 'thinking') finishResponse();
+        return;
+      }
+      try {
+        const capRes = await fetch(`/api/capture?target=${encodeURIComponent(oracleTarget)}`);
+        if (!capRes.ok) return;
+        const capJson = await capRes.json();
+        // Strip ANSI escape codes
+        const capText = (capJson.content || '').replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\[\d+m/g, '');
+
+        // Detect rate limit
+        if (capText.includes("hit your limit") || capText.includes("rate limit")) {
+          clearInterval(pollInterval);
+          addMessage("⚠️ Oracle is rate limited. Try another oracle or wait for reset.", 'ai');
+          setState('idle');
+          return;
+        }
+
+        // Find Claude's response — look for ● marker after our message
+        const allLines = capText.split('\n');
+        let responseLines = [];
+        let foundOurMsg = false;
+        let foundResponse = false;
+        for (let i = allLines.length - 1; i >= 0; i--) {
+          const t = allLines[i].trim();
+          // Find our sent message (❯ marker)
+          if (t.includes(text.slice(0, 20))) { foundOurMsg = true; break; }
+          // Skip noise
+          if (t.startsWith('❯') || !t) continue;
+          if (t.startsWith('📁') || t.startsWith('📡') || t.startsWith('⏵⏵')) continue;
+          if (t.includes('bypass permissions') || t.includes('shift+tab')) continue;
+          if (t.includes('current:') && t.includes('latest:')) continue;
+          if (t.includes('tokens') && !t.includes('●')) continue;
+          // This is response content
+          if (t.startsWith('●') || foundResponse) {
+            foundResponse = true;
+            responseLines.unshift(t.replace(/^● ?/, ''));
+          }
+        }
+
+        const cleanText = responseLines.join('\n').trim();
+        if (cleanText && cleanText.length > 3 && cleanText !== lastFeedText) {
+          lastFeedText = cleanText;
+          if (!currentResponseDiv) {
+            currentResponseDiv = document.createElement('div');
+            currentResponseDiv.className = 'msg ai';
+            messagesEl.appendChild(currentResponseDiv);
+          }
+          currentResponseDiv.textContent = cleanText;
+          currentResponseDiv.style.whiteSpace = 'pre-wrap';
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+
+          clearTimeout(responseTimeout);
+          responseTimeout = setTimeout(() => {
+            clearInterval(pollInterval);
+            finishResponse();
+          }, 4000);
+        }
+      } catch {}
+    }, 500);
   } catch (err) {
     addMessage(`Error: ${err.message}`, 'ai');
     setState('idle');
