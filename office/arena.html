@@ -8,8 +8,6 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #0a0a0f; overflow: hidden; font-family: 'SF Mono', monospace; }
   #canvas-container { width: 100vw; height: 100vh; }
-
-  /* Top bar */
   #topbar {
     position: fixed; top: 0; left: 0; right: 0; z-index: 10;
     background: rgba(10,10,15,0.8); backdrop-filter: blur(12px);
@@ -20,23 +18,16 @@
   #topbar .stats { color: rgba(255,255,255,0.3); font-size: 11px; }
   #topbar a { color: rgba(255,255,255,0.4); text-decoration: none; font-size: 11px; margin-left: auto; }
   #topbar a:hover { color: #64b5f6; }
-
-  /* Labels */
-  .agent-label {
-    position: absolute; pointer-events: none; transform: translate(-50%, -100%);
-    font-size: 10px; font-family: 'SF Mono', monospace; white-space: nowrap;
-    padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.7);
-  }
-  .agent-label .name { color: #e2e8f0; }
-  .agent-label .status { font-size: 8px; margin-left: 4px; }
-
-  /* Connection */
   #connection {
     position: fixed; bottom: 16px; left: 16px; z-index: 10;
     font-size: 10px; color: rgba(255,255,255,0.2);
   }
   #connection.connected { color: #22c55e; }
   #connection.disconnected { color: #ef4444; }
+  #load-status {
+    position: fixed; bottom: 16px; right: 16px; z-index: 10;
+    font-size: 10px; color: rgba(255,255,255,0.3); font-family: 'SF Mono', monospace;
+  }
 </style>
 </head>
 <body>
@@ -49,6 +40,7 @@
 
 <div id="canvas-container"></div>
 <div id="connection" class="disconnected">disconnected</div>
+<div id="load-status">loading model...</div>
 
 <script type="importmap">
 {
@@ -62,11 +54,13 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
 // ===== CONFIG =====
 const WS_URL = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;
 const FLOOR_SIZE = 30;
-const DESK_SPACING = 3.5;
+const MODEL_URL = 'https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb';
 const STATUS_COLORS = {
   busy: 0xffa726,
   ready: 0x22c55e,
@@ -80,10 +74,13 @@ const SESSION_COLORS = [
 
 // ===== STATE =====
 let scene, camera, renderer, controls;
-const agents = new Map(); // target → { mesh, label, data }
-const sessionPositions = new Map(); // session → { cx, cz }
+let frustumSize = 30;
+const agents = new Map(); // target → { model, mixer, actions, activeAction, ring, sprite, sessionColor, data, fallback?, body? }
+const sessionPositions = new Map();
 const clock = new THREE.Clock();
 let ws = null;
+let gltfData = null;
+const serverUnits = []; // for blinking animation
 
 // ===== INIT =====
 function init() {
@@ -93,8 +90,16 @@ function init() {
   scene.background = new THREE.Color(0x1a1510);
   scene.fog = new THREE.FogExp2(0x1a1510, 0.012);
 
-  camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.5, 200);
-  camera.position.set(25, 22, 25);
+  // Orthographic isometric camera (45° azimuth, ~35° elevation)
+  const aspect = window.innerWidth / window.innerHeight;
+  camera = new THREE.OrthographicCamera(
+    -frustumSize * aspect / 2,
+    frustumSize * aspect / 2,
+    frustumSize / 2,
+    -frustumSize / 2,
+    0.1, 300
+  );
+  camera.position.set(22, 18, 22);
   camera.lookAt(0, 0, 0);
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -108,11 +113,16 @@ function init() {
   controls.target.set(0, 0, 0);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
-  controls.maxPolarAngle = Math.PI / 2.5;
-  controls.minDistance = 8;
-  controls.maxDistance = 60;
+  controls.maxPolarAngle = Math.PI / 2.3;
+  controls.minZoom = 0.3;
+  controls.maxZoom = 4;
+  controls.mouseButtons = {
+    LEFT: THREE.MOUSE.ROTATE,
+    MIDDLE: THREE.MOUSE.DOLLY,
+    RIGHT: THREE.MOUSE.PAN,
+  };
 
-  // Lighting — warm office feel like tworivers
+  // Lighting — warm office
   const ambient = new THREE.AmbientLight(0xfff0e0, 0.6);
   scene.add(ambient);
 
@@ -123,8 +133,8 @@ function init() {
   const dir = new THREE.DirectionalLight(0xffeedd, 3);
   dir.position.set(10, 25, 15);
   dir.castShadow = true;
-  dir.shadow.camera.top = 25; dir.shadow.camera.bottom = -25;
-  dir.shadow.camera.left = -25; dir.shadow.camera.right = 25;
+  dir.shadow.camera.top = 30; dir.shadow.camera.bottom = -30;
+  dir.shadow.camera.left = -30; dir.shadow.camera.right = 30;
   dir.shadow.mapSize.set(2048, 2048);
   scene.add(dir);
 
@@ -136,7 +146,6 @@ function init() {
   rim.position.set(-10, 5, -10);
   scene.add(rim);
 
-  // Point lights for warmth
   const lamp1 = new THREE.PointLight(0xffa726, 0.8, 15);
   lamp1.position.set(-6, 3, -6);
   scene.add(lamp1);
@@ -144,29 +153,29 @@ function init() {
   lamp2.position.set(6, 3, 6);
   scene.add(lamp2);
 
-  // Floor — warm beige/tan like office carpet
-  const floorGeo = new THREE.PlaneGeometry(FLOOR_SIZE * 2, FLOOR_SIZE * 2);
-  const floorMat = new THREE.MeshPhongMaterial({ color: 0xc4a882, depthWrite: false });
-  const floor = new THREE.Mesh(floorGeo, floorMat);
+  // Floor — warm office carpet
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(FLOOR_SIZE * 2, FLOOR_SIZE * 2),
+    new THREE.MeshPhongMaterial({ color: 0xc4a882, depthWrite: false })
+  );
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
 
-  // Grid — subtle floor lines
   const grid = new THREE.GridHelper(FLOOR_SIZE * 2, FLOOR_SIZE * 2, 0xb09870, 0xb8a078);
   grid.material.opacity = 0.15;
   grid.material.transparent = true;
   scene.add(grid);
 
-  // Center hub — carpet circle (like a rug in the middle of the office)
-  const hubGeo = new THREE.CircleGeometry(3, 32);
-  const hubMat = new THREE.MeshPhongMaterial({ color: 0x8b5a3a, transparent: true, opacity: 0.4 });
-  const hub = new THREE.Mesh(hubGeo, hubMat);
+  // Center rug + ARRA ring
+  const hub = new THREE.Mesh(
+    new THREE.CircleGeometry(3, 32),
+    new THREE.MeshPhongMaterial({ color: 0x8b5a3a, transparent: true, opacity: 0.4 })
+  );
   hub.rotation.x = -Math.PI / 2;
   hub.position.y = 0.01;
   scene.add(hub);
 
-  // ARRA logo ring
   const logoRing = new THREE.Mesh(
     new THREE.RingGeometry(2.5, 2.7, 32),
     new THREE.MeshBasicMaterial({ color: 0xffa726, transparent: true, opacity: 0.2, side: THREE.DoubleSide })
@@ -175,24 +184,25 @@ function init() {
   logoRing.position.y = 0.02;
   scene.add(logoRing);
 
-  // Build desk clusters
   buildOffice();
 
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
+  window.addEventListener('resize', onResize);
+}
 
-  connectWS();
-  animate();
+function onResize() {
+  const aspect = window.innerWidth / window.innerHeight;
+  camera.left = -frustumSize * aspect / 2;
+  camera.right = frustumSize * aspect / 2;
+  camera.top = frustumSize / 2;
+  camera.bottom = -frustumSize / 2;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
 // ===== OFFICE FURNITURE =====
 function createDesk(x, z, rotation = 0) {
   const group = new THREE.Group();
 
-  // Desktop — warm wood
   const top = new THREE.Mesh(
     new THREE.BoxGeometry(1.2, 0.06, 0.7),
     new THREE.MeshPhongMaterial({ color: 0x8b6f47 })
@@ -201,7 +211,6 @@ function createDesk(x, z, rotation = 0) {
   top.castShadow = true;
   group.add(top);
 
-  // Legs
   const legGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.7);
   const legMat = new THREE.MeshPhongMaterial({ color: 0x666655 });
   [[-0.5, -0.3], [0.5, -0.3], [-0.5, 0.3], [0.5, 0.3]].forEach(([lx, lz]) => {
@@ -210,7 +219,6 @@ function createDesk(x, z, rotation = 0) {
     group.add(leg);
   });
 
-  // Monitor — glowing screen
   const monitor = new THREE.Mesh(
     new THREE.BoxGeometry(0.5, 0.35, 0.03),
     new THREE.MeshPhongMaterial({ color: 0x111118, emissive: 0x2244aa, emissiveIntensity: 0.5 })
@@ -225,6 +233,7 @@ function createDesk(x, z, rotation = 0) {
 
 function createChair(x, z, rotation = 0) {
   const group = new THREE.Group();
+
   const seat = new THREE.Mesh(
     new THREE.BoxGeometry(0.4, 0.05, 0.4),
     new THREE.MeshPhongMaterial({ color: 0x444455 })
@@ -244,40 +253,165 @@ function createChair(x, z, rotation = 0) {
   return group;
 }
 
-function buildOffice() {
-  // Desk clusters — 4 groups arranged around center
-  const clusters = [
-    { cx: -6, cz: -6 },
-    { cx: 6, cz: -6 },
-    { cx: -6, cz: 6 },
-    { cx: 6, cz: 6 },
-    { cx: 0, cz: -10 },
-    { cx: 0, cz: 10 },
-  ];
+function createWhiteboard(x, z, rotY = 0) {
+  const group = new THREE.Group();
 
-  clusters.forEach(({ cx, cz }) => {
-    // 4 desks per cluster (2x2)
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(2.6, 1.7, 0.08),
+    new THREE.MeshPhongMaterial({ color: 0x888877 })
+  );
+  frame.position.y = 1.9;
+  group.add(frame);
+
+  const board = new THREE.Mesh(
+    new THREE.BoxGeometry(2.4, 1.5, 0.05),
+    new THREE.MeshPhongMaterial({ color: 0xf8f8f0, emissive: 0xffffff, emissiveIntensity: 0.04 })
+  );
+  board.position.set(0, 1.9, 0.02);
+  group.add(board);
+
+  const tray = new THREE.Mesh(
+    new THREE.BoxGeometry(2.3, 0.06, 0.1),
+    new THREE.MeshPhongMaterial({ color: 0x888877 })
+  );
+  tray.position.set(0, 1.1, 0.04);
+  group.add(tray);
+
+  group.position.set(x, 0, z);
+  group.rotation.y = rotY;
+  return group;
+}
+
+function createCoffeeMachine(x, z) {
+  const group = new THREE.Group();
+
+  const counter = new THREE.Mesh(
+    new THREE.BoxGeometry(1.0, 0.05, 0.5),
+    new THREE.MeshPhongMaterial({ color: 0x8b6f47 })
+  );
+  counter.position.y = 0.85;
+  counter.castShadow = true;
+  group.add(counter);
+
+  const legGeo = new THREE.BoxGeometry(0.05, 0.85, 0.05);
+  const legMat = new THREE.MeshPhongMaterial({ color: 0x666655 });
+  [[-0.45, -0.2], [0.45, -0.2], [-0.45, 0.2], [0.45, 0.2]].forEach(([lx, lz]) => {
+    const leg = new THREE.Mesh(legGeo, legMat);
+    leg.position.set(lx, 0.425, lz);
+    group.add(leg);
+  });
+
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(0.35, 0.45, 0.3),
+    new THREE.MeshPhongMaterial({ color: 0x1a1a1a })
+  );
+  body.position.set(-0.2, 1.1, 0);
+  body.castShadow = true;
+  group.add(body);
+
+  const indicator = new THREE.Mesh(
+    new THREE.SphereGeometry(0.03, 6, 6),
+    new THREE.MeshBasicMaterial({ color: 0xff2200 })
+  );
+  indicator.position.set(-0.2, 1.35, 0.16);
+  group.add(indicator);
+
+  const cup = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.055, 0.045, 0.1, 8),
+    new THREE.MeshPhongMaterial({ color: 0xeeeeee })
+  );
+  cup.position.set(0.1, 0.93, 0);
+  group.add(cup);
+
+  group.position.set(x, 0, z);
+  return group;
+}
+
+function createServerRack(x, z, rotY = 0) {
+  const group = new THREE.Group();
+
+  const cabinet = new THREE.Mesh(
+    new THREE.BoxGeometry(0.7, 2.2, 0.9),
+    new THREE.MeshPhongMaterial({ color: 0x181818 })
+  );
+  cabinet.position.y = 1.1;
+  cabinet.castShadow = true;
+  group.add(cabinet);
+
+  const ventMat = new THREE.MeshPhongMaterial({ color: 0x0e0e0e });
+  for (let i = 0; i < 8; i++) {
+    const vent = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.04, 0.02), ventMat);
+    vent.position.set(0, 0.3 + i * 0.25, 0.46);
+    group.add(vent);
+  }
+
+  for (let i = 0; i < 6; i++) {
+    const unit = new THREE.Mesh(
+      new THREE.BoxGeometry(0.55, 0.22, 0.04),
+      new THREE.MeshPhongMaterial({ color: 0x0a0a0a, emissive: 0x002200, emissiveIntensity: 1 })
+    );
+    unit.position.set(0, 0.3 + i * 0.31, 0.44);
+    unit.userData.isServerUnit = true;
+    unit.userData.blinkOffset = i * 1.3 + Math.random() * 2;
+    group.add(unit);
+    serverUnits.push(unit);
+  }
+
+  group.position.set(x, 0, z);
+  group.rotation.y = rotY;
+  return group;
+}
+
+function buildOffice() {
+  // Standard 2×2 desk clusters (4 corners)
+  [{ cx: -6, cz: -6 }, { cx: 6, cz: -6 }, { cx: -6, cz: 6 }, { cx: 6, cz: 6 }].forEach(({ cx, cz }) => {
     for (let dx = -1; dx <= 1; dx += 2) {
       for (let dz = -1; dz <= 1; dz += 2) {
-        const rotation = dz > 0 ? 0 : Math.PI;
-        scene.add(createDesk(cx + dx * 1, cz + dz * 0.8, rotation));
-        scene.add(createChair(cx + dx * 1, cz + dz * 1.4, rotation));
+        const r = dz > 0 ? 0 : Math.PI;
+        scene.add(createDesk(cx + dx * 1, cz + dz * 0.8, r));
+        scene.add(createChair(cx + dx * 1, cz + dz * 1.4, r));
       }
     }
   });
 
-  // Meeting table (center-right) — dark wood
-  const tableMat = new THREE.MeshPhongMaterial({ color: 0x6b4f32 });
-  const table = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.08, 16), tableMat);
+  // L-shaped cluster — top edge
+  [-1, 0, 1].forEach(i => {
+    scene.add(createDesk(-1 + i * 1.3, -10, 0));
+    scene.add(createChair(-1 + i * 1.3, -10.75, 0));
+  });
+  [1, 2].forEach(i => {
+    scene.add(createDesk(1.6, -10 + i * 1.3, Math.PI / 2));
+    scene.add(createChair(2.4, -10 + i * 1.3, Math.PI / 2));
+  });
+
+  // L-shaped cluster — bottom edge
+  [-1, 0, 1].forEach(i => {
+    scene.add(createDesk(-1 + i * 1.3, 10, Math.PI));
+    scene.add(createChair(-1 + i * 1.3, 10.75, Math.PI));
+  });
+  [-1, -2].forEach(i => {
+    scene.add(createDesk(-1.6, 10 + i * 1.3, -Math.PI / 2));
+    scene.add(createChair(-2.4, 10 + i * 1.3, -Math.PI / 2));
+  });
+
+  // Meeting table (right)
+  const table = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.5, 1.5, 0.08, 16),
+    new THREE.MeshPhongMaterial({ color: 0x6b4f32 })
+  );
   table.position.set(12, 0.7, 0);
   table.castShadow = true;
   scene.add(table);
-  // Table leg
-  const tableLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.7, 8), new THREE.MeshPhongMaterial({ color: 0x555544 }));
-  tableLeg.position.set(12, 0.35, 0);
-  scene.add(tableLeg);
+  scene.add(new THREE.Mesh(
+    new THREE.CylinderGeometry(0.15, 0.15, 0.7, 8),
+    new THREE.MeshPhongMaterial({ color: 0x555544 })
+  )).position.set(12, 0.35, 0);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    scene.add(createChair(12 + Math.cos(a) * 2, Math.sin(a) * 2, a + Math.PI));
+  }
 
-  // Couch area (left) — purple fabric
+  // Couch area (left)
   const couchMat = new THREE.MeshPhongMaterial({ color: 0x6b5b8a });
   const couch = new THREE.Mesh(new THREE.BoxGeometry(3, 0.5, 1), couchMat);
   couch.position.set(-12, 0.4, 0);
@@ -287,24 +421,32 @@ function buildOffice() {
   couchBack.position.set(-12, 0.6, -0.4);
   scene.add(couchBack);
 
-  // Plants — tall indoor plants
+  // Coffee machine near couch
+  scene.add(createCoffeeMachine(-12, 2.5));
+
+  // Server rack area (back-left corner)
+  scene.add(createServerRack(-11, -10));
+  scene.add(createServerRack(-9.3, -10));
+
+  // Whiteboards on walls
+  scene.add(createWhiteboard(0, -13.5, 0));
+  scene.add(createWhiteboard(5, -13.5, 0));
+  scene.add(createWhiteboard(-13.5, 0, Math.PI / 2));
+  scene.add(createWhiteboard(-13.5, 5, Math.PI / 2));
+
+  // Plants
   function createPlant(x, z) {
     const g = new THREE.Group();
-    // Pot
-    const pot = new THREE.Mesh(
+    g.add(Object.assign(new THREE.Mesh(
       new THREE.CylinderGeometry(0.2, 0.25, 0.4, 8),
       new THREE.MeshPhongMaterial({ color: 0x8b6f47 })
-    );
-    pot.position.y = 0.2;
-    g.add(pot);
-    // Trunk
+    ), { position: { x: 0, y: 0.2, z: 0 } }));
     const trunk = new THREE.Mesh(
       new THREE.CylinderGeometry(0.04, 0.06, 1.2, 6),
       new THREE.MeshPhongMaterial({ color: 0x6b4f32 })
     );
     trunk.position.y = 0.9;
     g.add(trunk);
-    // Leaves (3 spheres)
     [0, 1.2, 2.4].forEach((angle, i) => {
       const leaf = new THREE.Mesh(
         new THREE.SphereGeometry(0.25 + i * 0.05, 6, 6),
@@ -317,16 +459,14 @@ function buildOffice() {
     scene.add(g);
   }
 
-  // Place plants around office
   createPlant(-3, -10); createPlant(3, -10);
   createPlant(-10, -3); createPlant(10, -3);
   createPlant(-10, 3); createPlant(10, 3);
   createPlant(-3, 10); createPlant(3, 10);
 
-  // Walls (transparent glass with slight tint)
+  // Glass walls
   const wallMat = new THREE.MeshPhongMaterial({ color: 0x8899aa, transparent: true, opacity: 0.08, side: THREE.DoubleSide });
   const wallGeo = new THREE.PlaneGeometry(FLOOR_SIZE * 2, 3);
-
   [[-FLOOR_SIZE, 0], [FLOOR_SIZE, 0], [0, -FLOOR_SIZE], [0, FLOOR_SIZE]].forEach(([x, z], i) => {
     const wall = new THREE.Mesh(wallGeo, wallMat);
     wall.position.set(x, 1.5, z);
@@ -334,28 +474,121 @@ function buildOffice() {
     scene.add(wall);
   });
 
-  // Ceiling lights (fluorescent strips)
+  // Ceiling fluorescent strips
   [[-6, -6], [6, -6], [-6, 6], [6, 6], [0, 0]].forEach(([x, z]) => {
-    const light = new THREE.Mesh(
+    const strip = new THREE.Mesh(
       new THREE.BoxGeometry(2, 0.05, 0.3),
       new THREE.MeshBasicMaterial({ color: 0xffffee })
     );
-    light.position.set(x, 3.5, z);
-    scene.add(light);
-    // Actual point light
+    strip.position.set(x, 3.5, z);
+    scene.add(strip);
     const pl = new THREE.PointLight(0xfff5e0, 0.3, 8);
     pl.position.set(x, 3.4, z);
     scene.add(pl);
   });
 }
 
-// ===== AGENT CHARACTERS =====
-function createAgentMesh(name, status, sessionIndex) {
-  const group = new THREE.Group();
-  const color = STATUS_COLORS[status] || 0x666666;
+// ===== GLTF LOADER =====
+async function loadModel() {
+  const statusEl = document.getElementById('load-status');
+  try {
+    const loader = new GLTFLoader();
+    gltfData = await loader.loadAsync(MODEL_URL);
+    statusEl.textContent = 'model ready';
+    setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
+  } catch (e) {
+    statusEl.textContent = 'using fallback characters';
+    console.warn('GLTF load failed:', e);
+  }
+}
+
+// ===== NAME SPRITE =====
+function makeNameSprite(name, sessionColor, status) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 48;
+  drawNameCanvas(canvas, name, sessionColor, status);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(2.4, 0.45, 1);
+  sprite.position.set(0, 2.3, 0);
+  sprite.renderOrder = 999;
+  return sprite;
+}
+
+function drawNameCanvas(canvas, name, sessionColor, status) {
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 256, 48);
+
+  ctx.fillStyle = 'rgba(0,0,0,0.78)';
+  ctx.fillRect(4, 4, 248, 40);
+
+  const sc = STATUS_COLORS[status] || 0x666666;
+  ctx.fillStyle = '#' + sc.toString(16).padStart(6, '0');
+  ctx.beginPath();
+  ctx.arc(22, 24, 7, 0, Math.PI * 2);
+  ctx.fill();
+
+  const displayName = name.replace(/-oracle$/, '').replace(/-/g, ' ');
+  ctx.fillStyle = '#' + (sessionColor || 0x64b5f6).toString(16).padStart(6, '0');
+  ctx.font = 'bold 15px SF Mono, monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(displayName.substring(0, 18), 38, 24);
+}
+
+function updateNameSprite(agent, status) {
+  if (!agent.sprite) return;
+  drawNameCanvas(agent.sprite.material.map.image, agent.data.name, agent.sessionColor, status);
+  agent.sprite.material.map.needsUpdate = true;
+}
+
+// ===== AGENT CREATION =====
+function createAgentModel(name, status, sessionIndex) {
   const sessionColor = SESSION_COLORS[sessionIndex % SESSION_COLORS.length];
 
-  // Body (capsule-like)
+  if (gltfData) {
+    const clone = SkeletonUtils.clone(gltfData.scene);
+    clone.traverse(child => {
+      if (child.isMesh && child.material) {
+        child.material = child.material.clone();
+        child.material.emissive = new THREE.Color(sessionColor);
+        child.material.emissiveIntensity = 0.12;
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+
+    const mixer = new THREE.AnimationMixer(clone);
+    const actions = {};
+    for (const clip of gltfData.animations) {
+      actions[clip.name] = mixer.clipAction(clip);
+    }
+
+    const animName = status === 'busy' ? 'Walking' : 'Idle';
+    if (actions[animName]) actions[animName].play();
+
+    const ringColor = STATUS_COLORS[status] || 0x666666;
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.4, 0.55, 16),
+      new THREE.MeshBasicMaterial({ color: ringColor, side: THREE.DoubleSide, transparent: true, opacity: 0.6 })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.02;
+    clone.add(ring);
+
+    const sprite = makeNameSprite(name, sessionColor, status);
+    clone.add(sprite);
+
+    scene.add(clone);
+    return { model: clone, mixer, actions, activeAction: actions[animName] || null, ring, sprite, sessionColor };
+  }
+
+  // Fallback capsule character
+  const group = new THREE.Group();
+  const color = STATUS_COLORS[status] || 0x666666;
+
   const body = new THREE.Mesh(
     new THREE.CapsuleGeometry(0.25, 0.5, 4, 8),
     new THREE.MeshPhongMaterial({ color: sessionColor, emissive: color, emissiveIntensity: 0.3 })
@@ -364,16 +597,13 @@ function createAgentMesh(name, status, sessionIndex) {
   body.castShadow = true;
   group.add(body);
 
-  // Head
   const head = new THREE.Mesh(
     new THREE.SphereGeometry(0.2, 8, 8),
     new THREE.MeshPhongMaterial({ color: 0xe8d4b8 })
   );
   head.position.y = 1.25;
-  head.castShadow = true;
   group.add(head);
 
-  // Status indicator (glowing ring at feet)
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.3, 0.4, 16),
     new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.6 })
@@ -382,11 +612,24 @@ function createAgentMesh(name, status, sessionIndex) {
   ring.position.y = 0.02;
   group.add(ring);
 
-  // Store refs
-  group.userData = { body, ring, name, status, targetY: 0 };
-  return group;
+  const sprite = makeNameSprite(name, sessionColor, status);
+  group.add(sprite);
+
+  scene.add(group);
+  return { model: group, mixer: null, actions: null, activeAction: null, ring, sprite, sessionColor, fallback: true, body };
 }
 
+function fadeToAction(agent, animName, duration = 0.3) {
+  if (!agent.actions || !agent.actions[animName]) return;
+  const prev = agent.activeAction;
+  const next = agent.actions[animName];
+  if (prev === next) return;
+  prev?.fadeOut(duration);
+  next.reset().fadeIn(duration).play();
+  agent.activeAction = next;
+}
+
+// ===== POSITIONING =====
 function getAgentPosition(sessionName, windowIndex, totalInSession) {
   if (!sessionPositions.has(sessionName)) {
     const idx = sessionPositions.size;
@@ -406,46 +649,46 @@ function getAgentPosition(sessionName, windowIndex, totalInSession) {
   };
 }
 
+// ===== AGENT UPDATE =====
 function updateAgent(data) {
   const key = data.target;
   let agent = agents.get(key);
-  const sessionIndex = [...new Set([...agents.values()].map(a => a.data?.session))].indexOf(data.session);
 
   if (!agent) {
-    const mesh = createAgentMesh(data.name, data.status, sessionIndex >= 0 ? sessionIndex : agents.size);
-    scene.add(mesh);
+    const uniqueSessions = [...new Set([...agents.values()].map(a => a.data?.session).filter(Boolean))];
+    let sessionIndex = uniqueSessions.indexOf(data.session);
+    if (sessionIndex === -1) sessionIndex = uniqueSessions.length;
 
-    // HTML label
-    const label = document.createElement('div');
-    label.className = 'agent-label';
-    label.innerHTML = `<span class="name">${data.name.replace(/-oracle$/, '').replace(/-/g, ' ')}</span>`;
-    document.body.appendChild(label);
-
-    agent = { mesh, label, data };
+    const agentObj = createAgentModel(data.name, data.status, sessionIndex);
+    agent = { ...agentObj, data };
     agents.set(key, agent);
   }
 
-  // Update data
   agent.data = data;
 
-  // Update colors
   const color = STATUS_COLORS[data.status] || 0x666666;
-  agent.mesh.userData.ring.material.color.setHex(color);
-  agent.mesh.userData.body.material.emissive.setHex(color);
+  if (agent.ring) agent.ring.material.color.setHex(color);
 
-  // Update label status
-  const statusColor = data.status === 'busy' ? '#ffa726' : data.status === 'ready' ? '#22c55e' : data.status === 'crashed' ? '#ef4444' : '#666';
-  agent.label.innerHTML = `<span class="name">${data.name.replace(/-oracle$/, '').replace(/-/g, ' ')}</span><span class="status" style="color:${statusColor}">●</span>`;
+  if (gltfData && agent.actions) {
+    fadeToAction(agent, data.status === 'busy' ? 'Walking' : 'Idle');
+    agent.model.traverse(child => {
+      if (child.isMesh && child.material?.emissive) {
+        child.material.emissiveIntensity = data.status === 'busy' ? 0.22 : 0.10;
+      }
+    });
+  } else if (agent.fallback && agent.body) {
+    agent.body.material.emissive.setHex(color);
+  }
+
+  updateNameSprite(agent, data.status);
 }
 
 function removeStaleAgents(activeSessions) {
   const activeTargets = new Set();
   activeSessions.forEach(s => s.windows.forEach(w => activeTargets.add(`${s.name}:${w.index}`)));
-
   for (const [key, agent] of agents) {
     if (!activeTargets.has(key)) {
-      scene.remove(agent.mesh);
-      agent.label.remove();
+      scene.remove(agent.model);
       agents.delete(key);
     }
   }
@@ -467,21 +710,19 @@ function connectWS() {
       if (msg.type === 'sessions') {
         const sessions = msg.sessions || [];
         let total = 0;
-
-        sessions.forEach((s, si) => {
-          (s.windows || []).forEach((w, wi) => {
+        sessions.forEach(s => {
+          (s.windows || []).forEach(w => {
             total++;
             updateAgent({
               target: `${s.name}:${w.index}`,
               name: w.name,
               session: s.name,
               windowIndex: w.index,
-              status: 'idle', // default, updated by capture
+              status: 'idle',
               active: w.active,
             });
           });
         });
-
         removeStaleAgents(sessions);
         document.getElementById('agent-count').textContent = `${total} agents · ${sessions.length} rooms`;
       }
@@ -492,8 +733,13 @@ function connectWS() {
           if (agent && info.status) {
             agent.data.status = info.status;
             const color = STATUS_COLORS[info.status] || 0x666666;
-            agent.mesh.userData.ring.material.color.setHex(color);
-            agent.mesh.userData.body.material.emissive.setHex(color);
+            if (agent.ring) agent.ring.material.color.setHex(color);
+            if (gltfData && agent.actions) {
+              fadeToAction(agent, info.status === 'busy' ? 'Walking' : 'Idle');
+            } else if (agent.fallback && agent.body) {
+              agent.body.material.emissive.setHex(color);
+            }
+            updateNameSprite(agent, info.status);
           }
         }
       }
@@ -507,49 +753,59 @@ function connectWS() {
   };
 }
 
-// ===== ANIMATION =====
+// ===== ANIMATION LOOP =====
 function animate() {
   requestAnimationFrame(animate);
   const dt = clock.getDelta();
   const t = clock.getElapsedTime();
 
-  // Update agent positions + animations
   let idx = 0;
-  for (const [key, agent] of agents) {
-    const { mesh, label, data } = agent;
+  for (const [, agent] of agents) {
+    const { model, mixer, data } = agent;
 
     // Calculate target position
     const sessAgents = [...agents.values()].filter(a => a.data.session === data.session);
     const myIdx = sessAgents.indexOf(agent);
     const pos = getAgentPosition(data.session, myIdx, sessAgents.length);
 
-    // Smooth move
-    mesh.position.x += (pos.x - mesh.position.x) * 2 * dt;
-    mesh.position.z += (pos.z - mesh.position.z) * 2 * dt;
+    // Smooth movement
+    model.position.x += (pos.x - model.position.x) * 2 * dt;
+    model.position.z += (pos.z - model.position.z) * 2 * dt;
 
-    // Busy = bob up/down, idle = still
-    if (data.status === 'busy') {
-      mesh.userData.body.position.y = 0.7 + Math.sin(t * 3 + idx) * 0.05;
-      mesh.userData.ring.material.opacity = 0.4 + Math.sin(t * 4 + idx) * 0.3;
-    } else {
-      mesh.userData.body.position.y = 0.7;
-      mesh.userData.ring.material.opacity = 0.3;
+    // Face movement direction
+    const dx = pos.x - model.position.x;
+    const dz = pos.z - model.position.z;
+    if (Math.abs(dx) + Math.abs(dz) > 0.01) {
+      const targetRy = Math.atan2(dx, dz);
+      model.rotation.y += (targetRy - model.rotation.y) * 5 * dt;
     }
 
-    // Update HTML label position
-    const pos3d = new THREE.Vector3(mesh.position.x, 1.6, mesh.position.z);
-    pos3d.project(camera);
-    const x = (pos3d.x * 0.5 + 0.5) * window.innerWidth;
-    const y = (-pos3d.y * 0.5 + 0.5) * window.innerHeight;
-    if (pos3d.z < 1) {
-      label.style.left = x + 'px';
-      label.style.top = y + 'px';
-      label.style.display = 'block';
-    } else {
-      label.style.display = 'none';
+    // GLTF mixer update
+    if (mixer) mixer.update(dt);
+
+    // Fallback bob + ring pulse
+    if (agent.fallback) {
+      if (data.status === 'busy') {
+        agent.body.position.y = 0.7 + Math.sin(t * 3 + idx) * 0.05;
+        agent.ring.material.opacity = 0.4 + Math.sin(t * 4 + idx) * 0.3;
+      } else {
+        agent.body.position.y = 0.7;
+        agent.ring.material.opacity = 0.3;
+      }
+    } else if (agent.ring && data.status === 'busy') {
+      agent.ring.material.opacity = 0.3 + Math.sin(t * 3 + idx) * 0.25;
+    } else if (agent.ring) {
+      agent.ring.material.opacity = 0.3;
     }
 
     idx++;
+  }
+
+  // Server rack blink
+  for (const unit of serverUnits) {
+    const blink = Math.sin(t * 2.5 + unit.userData.blinkOffset);
+    unit.material.emissive.setHex(blink > 0.3 ? 0x00ff44 : 0x001a00);
+    unit.material.emissiveIntensity = blink > 0.3 ? 1.0 : 0.3;
   }
 
   controls.update();
@@ -557,7 +813,14 @@ function animate() {
 }
 
 // ===== START =====
-init();
+async function main() {
+  init();
+  await loadModel();
+  connectWS();
+  animate();
+}
+
+main();
 </script>
 </body>
 </html>
