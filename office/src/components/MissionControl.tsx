@@ -1,15 +1,16 @@
-import { memo, useMemo, useState, useCallback, useRef, useEffect } from "react";
-import { AgentAvatar } from "./AgentAvatar";
+import { memo } from "react";
 import { HoverPreviewCard } from "./HoverPreviewCard";
 import { Joystick } from "./Joystick";
 import { OracleSearch } from "./OracleSearch";
 import { BottomStats } from "./BottomStats";
 import { FpsCounter } from "./FpsCounter";
 import { roomStyle, PREVIEW_CARD } from "../lib/constants";
-import { BroadcastModal } from "./FleetGrid";
+import { MissionControlHub } from "./MissionControlHub";
+import { MissionControlCluster } from "./MissionControlCluster";
+import { useMissionControl } from "./useMissionControl";
 import type { AgentState, Session, AgentEvent } from "../lib/types";
 import type { Team } from "./TeamPanel";
-import { COLOR_MAP } from "./TeamPanel";
+
 interface MissionControlProps {
   sessions: Session[];
   agents: AgentState[];
@@ -31,343 +32,22 @@ export const MissionControl = memo(function MissionControl({
   addEvent,
   teams,
 }: MissionControlProps) {
-  const [groupSolo, setGroupSolo] = useState(true);
-  const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
-  const [hoverPreview, setHoverPreview] = useState<{ agent: AgentState; room: { label: string; accent: string }; pos: { x: number; y: number } } | null>(null);
-  const [pinnedPreview, setPinnedPreview] = useState<{ agent: AgentState; room: { label: string; accent: string }; pos: { x: number; y: number }; svgX: number; svgY: number } | null>(null);
-  const pinnedByUser = useRef(false);
-  const hoverTimeout = useRef<ReturnType<typeof setTimeout>>();
-
-  const [showSearch, setShowSearch] = useState(false);
-  const [showBroadcast, setShowBroadcast] = useState(false);
-
-  // Hide search when card is pinned
-  useEffect(() => {
-    if (pinnedPreview) setShowSearch(false);
-  }, [pinnedPreview]);
-
-  // Multi-card: track all busy agents, user can dismiss individually
-  const [multiMode, setMultiMode] = useState(() => localStorage.getItem("office-multiview") !== "0");
-  const [multiCards, setMultiCards] = useState<Set<string>>(() => {
-    try {
-      const saved = localStorage.getItem("office-multicards");
-      return saved ? new Set(JSON.parse(saved)) : new Set();
-    } catch { return new Set(); }
-  });
-  const seenBusy = useRef<Set<string>>(new Set());
-
-  // Persist multiCards to localStorage
-  useEffect(() => {
-    localStorage.setItem("office-multicards", JSON.stringify([...multiCards]));
-  }, [multiCards]);
-
-  // Listen for toggle from FloatingButtons
-  const prevMultiMode = useRef(multiMode);
-  useEffect(() => {
-    const handler = (e: Event) => setMultiMode((e as CustomEvent).detail);
-    window.addEventListener("multiview-change", handler);
-    return () => window.removeEventListener("multiview-change", handler);
-  }, []);
-  useEffect(() => {
-    const busyAgents = agents.filter(a => a.status === "busy");
-
-    // When switching back to multi mode, re-add all busy agents
-    if (multiMode && !prevMultiMode.current) {
-      setPinnedPreview(null);
-      const newCards = new Set(busyAgents.map(a => a.target));
-      setMultiCards(prev => new Set([...prev, ...newCards]));
-      for (const a of busyAgents) seenBusy.current.add(a.target);
-    }
-    // When switching to single mode, clear multi cards
-    if (!multiMode && prevMultiMode.current) {
-      setMultiCards(new Set());
-    }
-    prevMultiMode.current = multiMode;
-
-    for (const a of busyAgents) {
-      if (!seenBusy.current.has(a.target)) {
-        seenBusy.current.add(a.target);
-        if (multiMode) {
-          // Multi: add to card set
-          setMultiCards(prev => new Set([...prev, a.target]));
-        } else {
-          // Single: replace pinned preview with newest
-          const room = roomStyle(a.session);
-          const pos = { x: window.innerWidth / 2 + 50, y: 80 };
-          pinnedByUser.current = true;
-          setPinnedPreview({ agent: a, room: { label: room.label, accent: room.accent }, pos, svgX: 600, svgY: 500 });
-        }
-      }
-    }
-    // Clean up seen set when agents go idle
-    for (const target of seenBusy.current) {
-      if (!busyAgents.find(a => a.target === target)) seenBusy.current.delete(target);
-    }
-  }, [agents, multiMode]);
-  const dismissCard = useCallback((target: string) => {
-    setMultiCards(prev => { const next = new Set(prev); next.delete(target); return next; });
-  }, []);
-
-  // Cmd+K or Ctrl+K to toggle search
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setShowSearch((s) => !s);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
-
-  // Auto-fit zoom: portrait = higher zoom (narrower), landscape = 0.9
-  const [zoom, setZoom] = useState(() => {
-    if (typeof window === "undefined") return 0.9;
-    const isPortrait = window.innerHeight > window.innerWidth;
-    return isPortrait ? 1.05 : 0.9;
-  });
-  const [pan, setPan] = useState({ x: 0, y: 120 });
-  const [isPanning, setIsPanning] = useState(false);
-  const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
-  const containerRef = useRef<HTMLDivElement>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
-
-  // Convert SVG coordinates to screen-relative position
-  const svgToScreen = useCallback((svgX: number, svgY: number): { x: number; y: number } => {
-    const svg = svgRef.current;
-    const container = containerRef.current;
-    if (!svg || !container) return { x: 0, y: 0 };
-    const pt = svg.createSVGPoint();
-    pt.x = svgX;
-    pt.y = svgY;
-    const ctm = svg.getScreenCTM();
-    if (!ctm) return { x: 0, y: 0 };
-    const screenPt = pt.matrixTransform(ctm);
-    const containerRect = container.getBoundingClientRect();
-    return {
-      x: screenPt.x - containerRect.left,
-      y: screenPt.y - containerRect.top,
-    };
-  }, []);
-
-  // side: "right" (default/hover), "left", or "auto" (prefer right, fallback left)
-  const calcCardPos = useCallback((svgX: number, svgY: number, side: "left" | "right" | "auto" = "auto") => {
-    const containerRect = containerRef.current?.getBoundingClientRect();
-    if (!containerRect) return { x: 0, y: 0 };
-    const screen = svgToScreen(svgX, svgY);
-    const cardW = PREVIEW_CARD.width;
-    const cardH = 500;
-    const rightX = screen.x + 60;
-    const leftX = screen.x - cardW - 40;
-    let x: number;
-    if (side === "right") {
-      x = rightX + cardW > containerRect.width ? leftX : rightX;
-    } else if (side === "left") {
-      x = leftX < 0 ? rightX : leftX;
-    } else {
-      x = rightX + cardW > containerRect.width ? leftX : rightX;
-    }
-    const y = Math.max(10, Math.min(screen.y - 290, containerRect.height - cardH - 20));
-    return { x, y };
-  }, [svgToScreen]);
-
-  // Show preview card on hover — anchored to agent's SVG position (skip when pinned)
-  const showPreview = useCallback((agent: AgentState, room: { label: string; accent: string }, svgX: number, svgY: number) => {
-    if (pinnedPreview) return;
-    clearTimeout(hoverTimeout.current);
-    const pos = calcCardPos(svgX, svgY);
-    setHoverPreview({ agent, room, pos });
-  }, [calcCardPos, pinnedPreview]);
-
-  const hidePreview = useCallback(() => {
-    hoverTimeout.current = setTimeout(() => setHoverPreview(null), 300);
-  }, []);
-
-  const keepPreview = useCallback(() => {
-    clearTimeout(hoverTimeout.current);
-  }, []);
-
-  // Pan with middle mouse or drag
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button === 1 || e.button === 0 && e.shiftKey) {
-      e.preventDefault();
-      setIsPanning(true);
-      panStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
-    }
-  }, [pan]);
-
-  const onMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isPanning) return;
-    const dx = e.clientX - panStart.current.x;
-    const dy = e.clientY - panStart.current.y;
-    setPan({ x: panStart.current.panX + dx / zoom, y: panStart.current.panY + dy / zoom });
-  }, [isPanning, zoom]);
-
-  const onMouseUp = useCallback(() => setIsPanning(false), []);
-
-  const resetView = useCallback(() => { setZoom(1.1); setPan({ x: 0, y: 0 }); }, []);
-
-  const onJoystickPan = useCallback((dx: number, dy: number) => {
-    setPan(p => ({ x: p.x + dx, y: p.y + dy }));
-  }, []);
-
-  // Group agents by session
-  const sessionAgents = useMemo(() => {
-    const map = new Map<string, AgentState[]>();
-    for (const a of agents) {
-      const arr = map.get(a.session) || [];
-      arr.push(a);
-      map.set(a.session, arr);
-    }
-    return map;
-  }, [agents]);
-
-  // Layout: optionally merge solo rooms into "Oracles" cluster, arrange in circle
-  const layout = useMemo(() => {
-    const sessionList = sessions.map((s) => ({
-      session: s,
-      agents: sessionAgents.get(s.name) || [],
-      style: roomStyle(s.name),
-    }));
-
-    type LayoutItem = typeof sessionList[0];
-    let virtual: LayoutItem[];
-
-    if (groupSolo) {
-      // Separate multi-agent rooms from solo rooms
-      const multi = sessionList.filter(s => s.agents.length > 1);
-      const soloAgents = sessionList.filter(s => s.agents.length === 1).flatMap(s => s.agents);
-
-      virtual = [];
-      if (soloAgents.length > 0) {
-        virtual.push({
-          session: { name: "_oracles", windows: [] },
-          agents: soloAgents,
-          style: { accent: "#7e57c2", floor: "#1a1428", wall: "#120e1e", label: "Oracles" },
-        });
-      }
-      virtual.push(...multi);
-    } else {
-      virtual = sessionList;
-    }
-
-    const cx = 640, cy = 460;
-    const radius = Math.min(370, 160 + virtual.length * 28);
-
-    return virtual.map((s, i) => {
-      const angle = (i / virtual.length) * Math.PI * 2 - Math.PI / 2;
-      const x = cx + Math.cos(angle) * radius;
-      const y = cy + Math.sin(angle) * radius;
-      return { ...s, x, y };
-    });
-  }, [sessions, sessionAgents, groupSolo]);
-
-  // Persistent input buffer per agent (survives pin/unpin)
-  const [inputBufs, setInputBufs] = useState<Record<string, string>>({});
-  const getInputBuf = useCallback((target: string) => inputBufs[target] || "", [inputBufs]);
-  const setInputBuf = useCallback((target: string, val: string) => {
-    setInputBufs(prev => ({ ...prev, [target]: val }));
-  }, []);
-
-  // Click agent -> pin preview card
-  const onAgentClick = useCallback(
-    (agent: AgentState, svgX: number, svgY: number, room: { label: string; accent: string }) => {
-      if (pinnedPreview) {
-        addEvent(agent.target, "command", `clicked ${agent.name}`);
-        return;
-      }
-      const pos = calcCardPos(svgX, svgY);
-      pinnedByUser.current = true;
-      setPinnedPreview({ agent, room, pos, svgX, svgY });
-      setHoverPreview(null);
-      send({ type: "subscribe", target: agent.target });
-    },
-    [calcCardPos, send, pinnedPreview, addEvent]
-  );
-
-  // Fullscreen -> close pin first, then open modal
-  const onPinnedFullscreen = useCallback(() => {
-    if (pinnedPreview) {
-      const agent = pinnedPreview.agent;
-      setPinnedPreview(null);
-      setTimeout(() => onSelectAgent(agent), 150);
-    }
-  }, [pinnedPreview, onSelectAgent]);
-
-  const onPinnedClose = useCallback(() => {
-    setPinnedPreview(null);
-  }, []);
-
-  const pinnedRef = useRef<HTMLDivElement>(null);
-
-  // Animate pinned card from hover position to center
-  const [pinnedAnimPos, setPinnedAnimPos] = useState<{ left: number; top: number } | null>(null);
-  useEffect(() => {
-    if (pinnedPreview) {
-      setPinnedAnimPos({ left: pinnedPreview.pos.x, top: pinnedPreview.pos.y });
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const containerW = containerRef.current?.getBoundingClientRect().width || 800;
-          setPinnedAnimPos({ left: (containerW - PREVIEW_CARD.width) / 2, top: 20 });
-        });
-      });
-    } else {
-      setPinnedAnimPos(null);
-    }
-  }, [pinnedPreview]);
-
-  // Click outside pinned card to close
-  useEffect(() => {
-    if (!pinnedPreview) return;
-    const handler = (e: MouseEvent) => {
-      if (pinnedRef.current && !pinnedRef.current.contains(e.target as Node)) {
-        setPinnedPreview(null);
-      }
-    };
-    const t = setTimeout(() => document.addEventListener("mousedown", handler), 50);
-    return () => { clearTimeout(t); document.removeEventListener("mousedown", handler); };
-  }, [pinnedPreview]);
-
-  // Build lookup: agent target -> { svgX, svgY, room style }
-  const agentPositions = useMemo(() => {
-    const map = new Map<string, { svgX: number; svgY: number; style: ReturnType<typeof roomStyle> }>();
-    for (const s of layout) {
-      const count = s.agents.length;
-      s.agents.forEach((agent, ai) => {
-        const angle = (ai / Math.max(1, count)) * Math.PI * 2 - Math.PI / 2;
-        const r = count === 1 ? 0 : Math.min(Math.max(70, 35 + count * 18) - 35, 35 + count * 6);
-        map.set(agent.target, {
-          svgX: s.x + Math.cos(angle) * r,
-          svgY: s.y + Math.sin(angle) * r,
-          style: s.style,
-        });
-      });
-    }
-    return map;
-  }, [layout]);
-
-  // Compute viewBox based on zoom and pan
-  const isPortrait = typeof window !== "undefined" && window.innerHeight > window.innerWidth;
-  const baseH = isPortrait ? 650 : 1000;
-  const vbW = 1200 / zoom;
-  const vbH = baseH / zoom;
-  const vbX = (1200 - vbW) / 2 - pan.x;
-  const vbY = (baseH - vbH) / 2 - pan.y + (isPortrait ? 250 : 0);
+  const mc = useMissionControl({ sessions, agents, send, onSelectAgent, addEvent });
 
   return (
     <div
-      ref={containerRef}
+      ref={mc.containerRef}
       className="relative w-full overflow-hidden"
-      style={{ background: "#020208", height: "calc(100vh - 60px)", cursor: isPanning ? "grabbing" : "default" }}
-      onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
-      onMouseLeave={onMouseUp}
+      style={{ background: "#020208", height: "calc(100vh - 60px)", cursor: mc.isPanning ? "grabbing" : "default" }}
+      onMouseDown={mc.onMouseDown}
+      onMouseMove={mc.onMouseMove}
+      onMouseUp={mc.onMouseUp}
+      onMouseLeave={mc.onMouseUp}
     >
       {/* SVG Mission Control */}
       <svg
-        ref={svgRef}
-        viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
+        ref={mc.svgRef}
+        viewBox={`${mc.vbX} ${mc.vbY} ${mc.vbW} ${mc.vbH}`}
         className="w-full h-full"
         preserveAspectRatio="xMidYMid meet"
       >
@@ -402,57 +82,15 @@ export const MissionControl = memo(function MissionControl({
         <circle cx={600} cy={500} r={450} fill="none" stroke="#ffa726" strokeWidth={0.5} opacity={0.04}
           strokeDasharray="8 16" />
 
-        {/* Center hub — busy (bright) + ready (grey) agents ON STAGE */}
-        {(() => {
-          const stageAgents = agents.filter(a => a.status === "busy" || a.status === "ready");
-          const busyCount = stageAgents.filter(a => a.status === "busy").length;
-          const hubR = Math.max(45, 30 + stageAgents.length * 25);
-          const hasStage = stageAgents.length > 0;
-          return (
-            <>
-              <circle cx={600} cy={500} r={hubR} fill="none" stroke={hasStage ? "#ffa726" : "#26c6da"} strokeWidth={hasStage ? 1.5 : 1} opacity={hasStage ? 0.3 : 0.15} />
-              {!hasStage ? (
-                <>
-                  <circle cx={600} cy={500} r={7} fill="#26c6da" opacity={0.4} />
-                  <text x={600} y={468} textAnchor="middle" fill="#26c6da" fontSize={12} opacity={0.5}
-                    fontFamily="'SF Mono', monospace" letterSpacing={5}>MISSION CONTROL</text>
-                </>
-              ) : (
-                <>
-                  <text x={600} y={500 - hubR + 16} textAnchor="middle" fill="#ffa726" fontSize={10} opacity={0.7}
-                    fontFamily="'SF Mono', monospace" letterSpacing={3}>ON STAGE</text>
-                  <text x={600 + 38} y={500 - hubR + 17} textAnchor="start" fill="#ffa726" fontSize={9} opacity={0.5}
-                    fontFamily="'SF Mono', monospace">{busyCount > 0 ? busyCount : ""}</text>
-                  {stageAgents.map((a, i) => {
-                    const cols = Math.min(stageAgents.length, 4);
-                    const rows = Math.ceil(stageAgents.length / cols);
-                    const col = i % cols;
-                    const row = Math.floor(i / cols);
-                    const spacing = 65;
-                    const ax = 600 + (col - (cols - 1) / 2) * spacing;
-                    const ay = 500 + (row - (rows - 1) / 2) * spacing;
-                    const isBusy = a.status === "busy";
-                    return (
-                      <g key={a.target} transform={`translate(${ax},${ay})`} className="cursor-pointer"
-                        style={{ opacity: isBusy ? 1 : 0.35, filter: isBusy ? "none" : "grayscale(1)", transition: "opacity 1s, filter 1s" }}
-                        onClick={() => {
-                          const room = roomStyle(a.session);
-                          const pos = { x: window.innerWidth / 2 + 50, y: 80 };
-                          pinnedByUser.current = true;
-                          setPinnedPreview({ agent: a, room: { label: room.label, accent: room.accent }, pos, svgX: ax, svgY: ay });
-                        }}>
-                        <AgentAvatar name={a.name} target={a.target} status={a.status} preview="" accent={isBusy ? "#ffa726" : "#666"} onClick={() => {}} />
-                      </g>
-                    );
-                  })}
-                </>
-              )}
-            </>
-          );
-        })()}
+        {/* Center hub */}
+        <MissionControlHub
+          agents={agents}
+          pinnedByUser={mc.pinnedByUser}
+          setPinnedPreview={mc.setPinnedPreview}
+        />
 
         {/* Connection lines from hub to sessions */}
-        {layout.map((s) => (
+        {mc.layout.map((s) => (
           <line key={`line-${s.session.name}`}
             x1={600} y1={500} x2={s.x} y2={s.y}
             stroke={s.style.accent} strokeWidth={0.5} opacity={0.08}
@@ -461,213 +99,96 @@ export const MissionControl = memo(function MissionControl({
         ))}
 
         {/* Session clusters */}
-        {layout.map((s) => {
-          const agentCount = s.agents.length;
-          const clusterRadius = Math.max(70, 35 + agentCount * 18);
-          const hasBusy = s.agents.some((a) => a.status === "busy");
-
-          return (
-            <g key={s.session.name}>
-              {/* Session zone */}
-              <circle cx={s.x} cy={s.y} r={clusterRadius}
-                fill={`${s.style.floor}cc`}
-                stroke={s.style.accent}
-                strokeWidth={hasBusy ? 1.5 : 0.5}
-                opacity={hasBusy ? 0.8 : 0.4}
-                style={hasBusy ? { animation: "room-pulse 2s ease-in-out infinite" } : {}}
-              />
-
-              {/* Session label */}
-              <text
-                x={s.x} y={s.y - clusterRadius - 12}
-                textAnchor="middle"
-                fill={s.style.accent}
-                fontSize={13}
-                fontWeight="bold"
-                fontFamily="'SF Mono', monospace"
-                letterSpacing={3}
-                opacity={0.8}
-              >
-                {s.style.label.toUpperCase()}
-              </text>
-
-              {/* Agent count badge */}
-              <text
-                x={s.x} y={s.y + clusterRadius + 18}
-                textAnchor="middle"
-                fill={s.style.accent}
-                fontSize={10}
-                fontFamily="'SF Mono', monospace"
-                opacity={0.6}
-              >
-                {agentCount} agent{agentCount !== 1 ? "s" : ""}
-              </text>
-
-              {/* Agents within cluster */}
-              {s.agents.map((agent, ai) => {
-                const agentAngle = (ai / Math.max(1, agentCount)) * Math.PI * 2 - Math.PI / 2;
-                const agentRadius = agentCount === 1 ? 0 : Math.min(clusterRadius - 35, 35 + agentCount * 6);
-                const ax = s.x + Math.cos(agentAngle) * agentRadius;
-                const ay = s.y + Math.sin(agentAngle) * agentRadius;
-                const isHovered = hoveredAgent === agent.target;
-                const scale = isHovered ? 1.4 : 0.65;
-
-                return (
-                  <g key={agent.target} transform={`translate(${ax}, ${ay})`}
-                    style={{ zIndex: isHovered ? 999 : 0 }}
-                  >
-                    {/* Hover backdrop glow */}
-                    {isHovered && (
-                      <circle cx={0} cy={-5} r={55} fill={s.style.accent} opacity={0.08} />
-                    )}
-                    <g
-                      transform={`scale(${scale})`}
-                      onMouseEnter={() => {
-                        setHoveredAgent(agent.target);
-                        showPreview(agent, { label: s.style.label, accent: s.style.accent }, ax, ay);
-                      }}
-                      onMouseLeave={() => {
-                        setHoveredAgent(null);
-                        hidePreview();
-                      }}
-                      style={{ transition: "transform 0.15s ease-out" }}
-                    >
-                      <AgentAvatar
-                        name={agent.name}
-                        target={agent.target}
-                        status={agent.status}
-                        preview={agent.preview}
-                        accent={s.style.accent}
-                        onClick={() => onAgentClick(agent, ax, ay, { label: s.style.label, accent: s.style.accent })}
-                      />
-                    </g>
-                    {/* Agent name (below) */}
-                    <text
-                      y={28}
-                      textAnchor="middle"
-                      fill={isHovered ? s.style.accent : "#ffffff"}
-                      fontSize={isHovered ? 11 : 9}
-                      fontFamily="'SF Mono', monospace"
-                      opacity={isHovered ? 1 : 0.7}
-                      style={{ transition: "all 0.2s", cursor: "pointer" }}
-                      onClick={() => onAgentClick(agent, ax, ay, { label: s.style.label, accent: s.style.accent })}
-                    >
-                      {agent.name.replace(/-oracle$/, "").replace(/-/g, " ")}
-                    </text>
-
-                    {/* Hover tooltip — hidden when preview card is showing */}
-                    {isHovered && !hoverPreview && (() => {
-                      const agentTeam = teams?.find(t => t.members.some(m =>
-                        m.name === agent.name || (agent.cwd && m.cwd && m.cwd === agent.cwd)
-                      ));
-                      const teamColor = agentTeam?.members[0]?.color ? COLOR_MAP[agentTeam.members[0].color] || s.style.accent : s.style.accent;
-                      const tooltipH = agentTeam ? 48 : 34;
-                      return (
-                        <g>
-                          <rect x={-100} y={-65 - (agentTeam ? 14 : 0)} width={200} height={tooltipH} rx={8}
-                            fill="rgba(8,8,16,0.95)" stroke={s.style.accent} strokeWidth={0.8} opacity={0.95} />
-                          {agentTeam && (
-                            <text x={0} y={-62} textAnchor="middle" fill={teamColor} fontSize={8}
-                              fontFamily="'SF Mono', monospace" fontWeight="bold">
-                              ● {agentTeam.name}
-                            </text>
-                          )}
-                          {agent.preview && (
-                            <text x={0} y={-48} textAnchor="middle" fill="#e0e0e0" fontSize={9}
-                              fontFamily="'SF Mono', monospace">
-                              {agent.preview.slice(0, 35)}
-                            </text>
-                          )}
-                          <text x={0} y={-38} textAnchor="middle" fill={s.style.accent} fontSize={8}
-                            fontFamily="'SF Mono', monospace" opacity={0.7}>
-                            {agent.status} · {agent.target}
-                          </text>
-                        </g>
-                      );
-                    })()}
-                  </g>
-                );
-              })}
-            </g>
-          );
-        })}
+        {mc.layout.map((s) => (
+          <MissionControlCluster
+            key={s.session.name}
+            item={s}
+            hoveredAgent={mc.hoveredAgent}
+            setHoveredAgent={mc.setHoveredAgent}
+            hoverPreview={mc.hoverPreview}
+            showPreview={mc.showPreview}
+            hidePreview={mc.hidePreview}
+            onAgentClick={mc.onAgentClick}
+            teams={teams}
+          />
+        ))}
       </svg>
 
       {/* Controls — bottom right: pan + zoom + group toggle */}
       <div className="absolute bottom-4 right-6 flex flex-col items-center gap-1">
         <button
-          onClick={() => setGroupSolo(g => !g)}
+          onClick={() => mc.setGroupSolo(g => !g)}
           className="w-8 h-8 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-[9px] text-white/50 hover:text-white hover:bg-white/10 cursor-pointer font-mono"
-          title={groupSolo ? "Show all rooms" : "Group solo oracles"}
+          title={mc.groupSolo ? "Show all rooms" : "Group solo oracles"}
         >
-          {groupSolo ? "G" : "A"}
+          {mc.groupSolo ? "G" : "A"}
         </button>
         <div className="w-6 border-t border-white/[0.06] my-0.5" />
-        <Joystick onPan={onJoystickPan} />
+        <Joystick onPan={mc.onJoystickPan} />
         <div className="w-6 border-t border-white/[0.06] my-0.5" />
-        <button onClick={() => setZoom((z) => Math.min(3, z + 0.05))}
+        <button onClick={() => mc.setZoom((z) => Math.min(3, z + 0.05))}
           className="w-8 h-8 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-white/10 text-lg font-bold cursor-pointer">+</button>
-        <button onClick={resetView}
+        <button onClick={mc.resetView}
           className="w-8 h-6 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-[9px] text-white/50 hover:text-white hover:bg-white/10 cursor-pointer font-mono">
-          {Math.round(zoom * 100)}%
+          {Math.round(mc.zoom * 100)}%
         </button>
-        <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.05))}
-          className="w-8 h-8 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-white/10 text-lg font-bold cursor-pointer">−</button>
+        <button onClick={() => mc.setZoom((z) => Math.max(0.5, z - 0.05))}
+          className="w-8 h-8 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-white/10 text-lg font-bold cursor-pointer">&minus;</button>
       </div>
 
-      {/* Hover Preview Card — manual hover (hidden when pinned) */}
-      {hoverPreview && !pinnedPreview && (
+      {/* Hover Preview Card */}
+      {mc.hoverPreview && !mc.pinnedPreview && (
         <div
           className="absolute z-30 pointer-events-auto"
           style={{
-            left: hoverPreview.pos.x,
-            top: hoverPreview.pos.y,
+            left: mc.hoverPreview.pos.x,
+            top: mc.hoverPreview.pos.y,
             maxWidth: PREVIEW_CARD.width,
             animation: "fadeSlideIn 0.15s ease-out",
           }}
-          onMouseEnter={keepPreview}
-          onMouseLeave={hidePreview}
+          onMouseEnter={mc.keepPreview}
+          onMouseLeave={mc.hidePreview}
         >
           <HoverPreviewCard
-            agent={hoverPreview.agent}
-            roomLabel={hoverPreview.room.label}
-            accent={hoverPreview.room.accent}
+            agent={mc.hoverPreview.agent}
+            roomLabel={mc.hoverPreview.room.label}
+            accent={mc.hoverPreview.room.accent}
           />
         </div>
       )}
 
-      {/* Pinned Preview Card — single agent (from click) */}
-      {pinnedPreview && pinnedAnimPos && (
+      {/* Pinned Preview Card */}
+      {mc.pinnedPreview && mc.pinnedAnimPos && (
         <div
-          ref={pinnedRef}
+          ref={mc.pinnedRef}
           className="absolute z-40 pointer-events-auto"
           style={{
-            left: pinnedAnimPos.left,
-            top: pinnedAnimPos.top,
+            left: mc.pinnedAnimPos.left,
+            top: mc.pinnedAnimPos.top,
             maxWidth: PREVIEW_CARD.width,
             transition: "left 0.3s ease-out, top 0.3s ease-out",
           }}
         >
           <HoverPreviewCard
-            agent={pinnedPreview.agent}
-            roomLabel={pinnedPreview.room.label}
-            accent={pinnedPreview.room.accent}
+            agent={mc.pinnedPreview.agent}
+            roomLabel={mc.pinnedPreview.room.label}
+            accent={mc.pinnedPreview.room.accent}
             pinned
             send={send}
-            onFullscreen={onPinnedFullscreen}
-            onClose={onPinnedClose}
+            onFullscreen={mc.onPinnedFullscreen}
+            onClose={mc.onPinnedClose}
             eventLog={eventLog}
             addEvent={addEvent}
-            externalInputBuf={getInputBuf(pinnedPreview.agent.target)}
-            onInputBufChange={(val) => setInputBuf(pinnedPreview.agent.target, val)}
+            externalInputBuf={mc.getInputBuf(mc.pinnedPreview.agent.target)}
+            onInputBufChange={(val) => mc.setInputBuf(mc.pinnedPreview.agent.target, val)}
           />
         </div>
       )}
 
-      {/* Multi-card bar — all busy agents side by side */}
-      {multiCards.size > 0 && !pinnedPreview && (
+      {/* Multi-card bar */}
+      {mc.multiCards.size > 0 && !mc.pinnedPreview && (
         <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center gap-2 overflow-x-auto pointer-events-auto p-3" style={{ height: "calc(100vh - 80px)", scrollbarWidth: "none", background: "transparent" }}>
-          {[...multiCards].map(target => {
+          {[...mc.multiCards].map(target => {
             const agent = agents.find(a => a.target === target);
             if (!agent) return null;
             const room = roomStyle(agent.session);
@@ -680,11 +201,11 @@ export const MissionControl = memo(function MissionControl({
                   pinned
                   compact
                   send={send}
-                  onClose={() => dismissCard(target)}
+                  onClose={() => mc.dismissCard(target)}
                   eventLog={eventLog}
                   addEvent={addEvent}
-                  externalInputBuf={getInputBuf(target)}
-                  onInputBufChange={(val) => setInputBuf(target, val)}
+                  externalInputBuf={mc.getInputBuf(target)}
+                  onInputBufChange={(val) => mc.setInputBuf(target, val)}
                 />
               </div>
             );
@@ -692,10 +213,10 @@ export const MissionControl = memo(function MissionControl({
         </div>
       )}
 
-      {/* Bottom left buttons — search + broadcast */}
+      {/* Bottom left buttons — search */}
       <div className="absolute bottom-4 left-6 flex items-center gap-2 z-20">
         <button
-          onClick={() => setShowSearch(true)}
+          onClick={() => mc.setShowSearch(true)}
           className="flex items-center gap-2 px-3 py-2 rounded-xl bg-black/50 backdrop-blur border border-white/10 text-white/50 hover:text-[#64b5f6] hover:border-[#64b5f6]/30 cursor-pointer transition-all"
           title="Search Oracle (⌘K)"
         >
@@ -709,7 +230,7 @@ export const MissionControl = memo(function MissionControl({
       </div>
 
       {/* Oracle Search overlay */}
-      {showSearch && <OracleSearch onClose={() => setShowSearch(false)} />}
+      {mc.showSearch && <OracleSearch onClose={() => mc.setShowSearch(false)} />}
 
       {/* Bottom stats + FPS */}
       <BottomStats agents={agents} />
