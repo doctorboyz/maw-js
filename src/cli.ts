@@ -26,6 +26,7 @@ import { cmdAssign } from "./commands/assign";
 import { cmdPr } from "./commands/pr";
 import { cmdCosts } from "./commands/costs";
 import { cmdTriggers } from "./commands/triggers";
+import { cmdHealth } from "./commands/health";
 import { logAudit } from "./audit";
 
 const args = process.argv.slice(2);
@@ -326,6 +327,8 @@ if (cmd === "--version" || cmd === "-v") {
   await cmdPr(args[1]);
 } else if (cmd === "triggers" || cmd === "trigger") {
   await cmdTriggers();
+} else if (cmd === "health" || cmd === "status") {
+  await cmdHealth();
 } else if (cmd === "serve") {
   const { startServer } = await import("./server");
   startServer(args[1] ? +args[1] : 3456);

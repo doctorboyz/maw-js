@@ -4,6 +4,15 @@
     "target": "03-neo:1",
     "type": "input",
     "message": "Claude is waiting for your input  ",
+    "id": "neo-oracle-1774573391437",
+    "ts": 1774573391437,
+    "dismissed": true
+  },
+  {
+    "oracle": "neo-oracle",
+    "target": "03-neo:1",
+    "type": "input",
+    "message": "Claude is waiting for your input  ",
     "id": "neo-oracle-1774572918764",
     "ts": 1774572918764,
     "dismissed": true
@@ -434,15 +443,6 @@
     "message": "Claude is waiting for your input  ",
     "id": "pigment-oracle-1774518127034",
     "ts": 1774518127034,
-    "dismissed": true
-  },
-  {
-    "oracle": "glyph-oracle",
-    "target": "",
-    "type": "input",
-    "message": "Done. Open `http://localhost:8787/` in your browser. You'll see:  **3 tabs:** 1. **Registry** — all 378 products with stats cards, search, group filter 2. **Code Explorer** — click through TYPE �",
-    "id": "glyph-oracle-1774518120362",
-    "ts": 1774518120362,
     "dismissed": true
   }
 ]
