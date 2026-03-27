@@ -11,6 +11,8 @@ import { worktreesApi } from "./worktrees";
 import { uiStateApi } from "./ui-state";
 import { deprecatedApi } from "./deprecated";
 import { talkApi } from "./talk";
+import { costsApi } from "./costs";
+import { triggersApi } from "./triggers";
 
 export const api = new Hono();
 
@@ -26,3 +28,5 @@ api.route("/", worktreesApi);
 api.route("/", uiStateApi);
 api.route("/", deprecatedApi);
 api.route("/", talkApi);
+api.route("/", costsApi);
+api.route("/", triggersApi);

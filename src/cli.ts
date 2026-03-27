@@ -24,6 +24,7 @@ import { cmdFederationStatus } from "./commands/federation";
 import { cmdReunion } from "./commands/reunion";
 import { cmdAssign } from "./commands/assign";
 import { cmdPr } from "./commands/pr";
+import { cmdCosts } from "./commands/costs";
 import { logAudit } from "./audit";
 
 const args = process.argv.slice(2);
@@ -94,6 +95,7 @@ function usage() {
   maw <agent>                 Shorthand for peek
   maw assign <issue-url>      Clone repo + wake oracle with issue as prompt
   maw assign <issue-url> --oracle <name>  Explicit oracle
+  maw costs                   Token usage + estimated cost per agent
   maw pr [window]             Create PR from current branch (links issue if branch has issue-N)
   maw serve [port]            Start web UI (default: 3456)
 
@@ -316,6 +318,8 @@ if (cmd === "--version" || cmd === "-v") {
     if (args[i] === "--oracle" && args[i + 1]) { oracle = args[++i]; }
   }
   await cmdAssign(args[1], { oracle });
+} else if (cmd === "costs" || cmd === "cost") {
+  await cmdCosts();
 } else if (cmd === "pr") {
   await cmdPr(args[1]);
 } else if (cmd === "serve") {
