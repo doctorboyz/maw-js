@@ -40,6 +40,19 @@ export class MawEngine {
     this.feedBuffer = feedBuffer;
     this.feedListeners = feedListeners;
     registerBuiltinHandlers(this);
+    // Eagerly load sessions on startup — don't wait for first WS client.
+    // Fixes: MQTT/API messages dropped when no browser is connected.
+    this.initSessionCache();
+  }
+
+  private async initSessionCache() {
+    try {
+      this.sessionCache.sessions = await tmux.listAll();
+      this.sessionCache.json = JSON.stringify({ type: "sessions", sessions: this.sessionCache.sessions });
+      console.log(`[engine] session cache initialized: ${this.sessionCache.sessions.length} sessions`);
+    } catch {
+      console.warn("[engine] session cache init failed — will retry on first WS connect");
+    }
   }
 
   on(type: string, handler: Handler) { this.handlers.set(type, handler); }
