@@ -28,6 +28,7 @@ function FloatingButtons() {
   const [showSounds, setShowSounds] = useState(false);
   const [current, setCurrent] = useState(getSoundProfile());
   const [multiView, setMultiView] = useState(() => localStorage.getItem("office-multiview") !== "0");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "local" | "remote">(() => (localStorage.getItem("office-source-filter") as any) || "all");
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -69,6 +70,22 @@ function FloatingButtons() {
         style={{ background: multiView ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.06)", border: `1px solid ${multiView ? "rgba(34,197,94,0.25)" : "rgba(255,255,255,0.1)"}`, color: multiView ? "#22c55e" : "#666" }}
         title={multiView ? "Multi-card view (click for single)" : "Single card view (click for multi)"}
       >{multiView ? "📺" : "1️⃣"}</button>
+
+      <button
+        onClick={() => {
+          const next = sourceFilter === "all" ? "local" : sourceFilter === "local" ? "remote" : "all";
+          setSourceFilter(next);
+          localStorage.setItem("office-source-filter", next);
+          window.dispatchEvent(new CustomEvent("source-filter-change", { detail: next }));
+        }}
+        className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl backdrop-blur-xl active:scale-90 cursor-pointer transition-all shadow-lg"
+        style={{
+          background: sourceFilter === "all" ? "rgba(255,255,255,0.06)" : sourceFilter === "local" ? "rgba(76,175,80,0.12)" : "rgba(168,85,247,0.12)",
+          border: `1px solid ${sourceFilter === "all" ? "rgba(255,255,255,0.1)" : sourceFilter === "local" ? "rgba(76,175,80,0.25)" : "rgba(168,85,247,0.25)"}`,
+          color: sourceFilter === "all" ? "#666" : sourceFilter === "local" ? "#66bb6a" : "#c084fc"
+        }}
+        title={sourceFilter === "all" ? "Showing all (click: local only)" : sourceFilter === "local" ? "Showing local (click: remote only)" : "Showing remote (click: all)"}
+      >{sourceFilter === "all" ? "🌐" : sourceFilter === "local" ? "🏠" : "☁️"}</button>
 
       {showSounds && (
         <div className="absolute right-16 top-[8.5rem] rounded-2xl overflow-hidden" style={{ background: "rgba(13,13,24,0.95)", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(12px)", minWidth: 200 }}>
@@ -260,6 +277,24 @@ export function App() {
 
   const { sessions, agents, eventLog, addEvent, handleMessage, feedEvents, feedActive, agentFeedLog, teams } = useSessions();
 
+  // Source filter: all / local / remote (synced via CustomEvent from FloatingButtons)
+  const [sourceFilter, setSourceFilter] = useState<"all" | "local" | "remote">(() => (localStorage.getItem("office-source-filter") as any) || "all");
+  useEffect(() => {
+    const handler = (e: Event) => setSourceFilter((e as CustomEvent).detail);
+    window.addEventListener("source-filter-change", handler);
+    return () => window.removeEventListener("source-filter-change", handler);
+  }, []);
+  const filteredSessions = useMemo(() => {
+    if (sourceFilter === "all") return sessions;
+    if (sourceFilter === "local") return sessions.filter(s => !s.source);
+    return sessions.filter(s => !!s.source);
+  }, [sessions, sourceFilter]);
+  const filteredAgents = useMemo(() => {
+    if (sourceFilter === "all") return agents;
+    if (sourceFilter === "local") return agents.filter(a => !a.source);
+    return agents.filter(a => !!a.source);
+  }, [agents, sourceFilter]);
+
   // Resolve hash agent name → AgentState once agents are loaded
   const pendingHashAgent = useRef(hashAgent);
   useEffect(() => { pendingHashAgent.current = hashAgent; }, [hashAgent]);
@@ -325,7 +360,7 @@ export function App() {
   const layoutProps = {
     connected,
     reconnecting,
-    agentCount: agents.length,
+    agentCount: filteredAgents.length,
     sessionCount: sessions.length,
     tabCount: sessions.reduce((sum, s) => sum + s.windows.length, 0),
     askCount,
@@ -362,7 +397,7 @@ export function App() {
       <Layout activeView="office" {...layoutProps}>
         <UniverseBg />
         <div className="relative z-10">
-          <RoomGrid sessions={sessions} agents={agents} onSelectAgent={onSelectAgent} />
+          <RoomGrid sessions={filteredSessions} agents={filteredAgents} onSelectAgent={onSelectAgent} />
         </div>
       </Layout>
     );
@@ -370,8 +405,8 @@ export function App() {
 
   if (route === "fleet") {
     return (
-      <Layout activeView="fleet" {...layoutProps} statusBarChildren={<FleetControls agents={agents} send={send} />}>
-        <FleetGrid sessions={sessions} agents={agents} connected={connected} send={send} onSelectAgent={onSelectAgent} eventLog={eventLog} addEvent={addEvent} feedActive={feedActive} agentFeedLog={agentFeedLog} teams={teams} />
+      <Layout activeView="fleet" {...layoutProps} statusBarChildren={<FleetControls agents={filteredAgents} send={send} />}>
+        <FleetGrid sessions={filteredSessions} agents={filteredAgents} connected={connected} send={send} onSelectAgent={onSelectAgent} eventLog={eventLog} addEvent={addEvent} feedActive={feedActive} agentFeedLog={agentFeedLog} teams={teams} />
       </Layout>
     );
   }

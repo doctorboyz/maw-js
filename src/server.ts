@@ -8,6 +8,7 @@ import { join } from "path";
 import { api } from "./api";
 import { feedBuffer, feedListeners } from "./api/feed";
 import { mountViews } from "./views/index";
+import { setupTriggerListener } from "./trigger-listener";
 
 const app = new Hono();
 app.use("/api/*", async (c, next) => {
@@ -30,6 +31,9 @@ import { handlePtyMessage, handlePtyClose } from "./pty";
 
 export function startServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456)) {
   const engine = new MawEngine({ feedBuffer, feedListeners });
+
+  // Hook workflow triggers into feed events
+  setupTriggerListener(feedListeners);
 
   const wsHandler = {
     open: (ws: any) => {

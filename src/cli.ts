@@ -24,6 +24,10 @@ import { cmdFederationStatus } from "./commands/federation";
 import { cmdReunion } from "./commands/reunion";
 import { cmdAssign } from "./commands/assign";
 import { cmdPr } from "./commands/pr";
+import { cmdCosts } from "./commands/costs";
+import { cmdTriggers } from "./commands/triggers";
+import { cmdHealth } from "./commands/health";
+import { cmdBroadcast } from "./commands/broadcast";
 import { logAudit } from "./audit";
 
 const args = process.argv.slice(2);
@@ -94,7 +98,13 @@ function usage() {
   maw <agent>                 Shorthand for peek
   maw assign <issue-url>      Clone repo + wake oracle with issue as prompt
   maw assign <issue-url> --oracle <name>  Explicit oracle
+  maw costs                   Token usage + estimated cost per agent
   maw pr [window]             Create PR from current branch (links issue if branch has issue-N)
+  maw triggers                List configured workflow triggers
+  maw transport status        Transport layer connectivity (tmux/MQTT/HTTP)
+  maw avengers status         ARRA-01 rate limit monitor (all accounts)
+  maw avengers best           Account with most capacity
+  maw avengers traffic        Traffic stats across accounts
   maw serve [port]            Start web UI (default: 3456)
 
 \x1b[33mWake modes:\x1b[0m
@@ -316,8 +326,30 @@ if (cmd === "--version" || cmd === "-v") {
     if (args[i] === "--oracle" && args[i + 1]) { oracle = args[++i]; }
   }
   await cmdAssign(args[1], { oracle });
+} else if (cmd === "costs" || cmd === "cost") {
+  await cmdCosts();
 } else if (cmd === "pr") {
   await cmdPr(args[1]);
+} else if (cmd === "triggers" || cmd === "trigger") {
+  await cmdTriggers();
+} else if (cmd === "health" || cmd === "status") {
+  await cmdHealth();
+} else if (cmd === "broadcast" || cmd === "shout") {
+  const msg = args.slice(1).join(" ");
+  await cmdBroadcast(msg);
+} else if (cmd === "transport" || cmd === "tp") {
+  const sub = args[1]?.toLowerCase();
+  if (!sub || sub === "status") {
+    const { cmdTransportStatus } = await import("./commands/transport");
+    await cmdTransportStatus();
+  } else {
+    console.error("usage: maw transport status");
+    process.exit(1);
+  }
+} else if (cmd === "avengers" || cmd === "avg") {
+  const sub = args[1]?.toLowerCase();
+  const { cmdAvengers } = await import("./commands/avengers");
+  await cmdAvengers(sub || "status");
 } else if (cmd === "serve") {
   const { startServer } = await import("./server");
   startServer(args[1] ? +args[1] : 3456);

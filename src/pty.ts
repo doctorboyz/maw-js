@@ -16,7 +16,7 @@ const sessions = new Map<string, PtySession>();
 const attaching = new Set<string>();
 
 function isLocalHost(): boolean {
-  const host = process.env.MAW_HOST || loadConfig().host || "white.local";
+  const host = process.env.MAW_HOST || loadConfig().host || "local";
   return host === "local" || host === "localhost";
 }
 
@@ -81,7 +81,7 @@ async function attach(ws: ServerWebSocket<any>, target: string, cols: number, ro
 
   // Create a grouped session — shares windows but has independent client sizing.
   // This prevents the web terminal from shrinking the real terminal.
-  const ptySessionName = `maw-pty-${++nextPtyId}`;
+  const ptySessionName = `maw-pty-${Date.now()}-${++nextPtyId}`;
   try {
     await tmux.newGroupedSession(sessionName, ptySessionName, {
       cols: c, rows: r, window: windowPart || undefined,
@@ -100,7 +100,7 @@ async function attach(ws: ServerWebSocket<any>, target: string, cols: number, ro
     const cmd = `stty rows ${r} cols ${c} 2>/dev/null; TERM=xterm-256color ${tmuxCmd()} attach-session -t '${ptySessionName}'`;
     args = ["script", "-qfc", cmd, "/dev/null"];
   } else {
-    const host = process.env.MAW_HOST || loadConfig().host || "white.local";
+    const host = process.env.MAW_HOST || loadConfig().host || "local";
     args = ["ssh", "-tt", host, `TERM=xterm-256color ${tmuxCmd()} attach-session -t '${ptySessionName}'`];
   }
 
@@ -115,26 +115,22 @@ async function attach(ws: ServerWebSocket<any>, target: string, cols: number, ro
   sessions.set(safe, session);
   attaching.delete(safe);
 
-  ws.send(JSON.stringify({ type: "attached", target: safe }));
-
-  // Force tmux to redraw — resize +1/-1 trick triggers full repaint
-  setTimeout(async () => {
-    try {
-      await tmux.resizePane(`${ptySessionName}:`, c + 1, r);
-      setTimeout(() => tmux.resizePane(`${ptySessionName}:`, c, r).catch(() => { /* expected: resize best-effort */ }), 200);
-    } catch { /* expected: resize redraw trick is best-effort */ }
-  }, 500);
-
-  // No resize here — grouped session has its own size from stty
-
   // Stream PTY stdout → all viewers as binary frames
+  // Send "attached" on first data — PTY is ready with content, no black screen
   const s = session;
+  let sentAttached = false;
   const reader = proc.stdout!.getReader();
   (async () => {
     try {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (!sentAttached) {
+          for (const v of s.viewers) {
+            try { v.send(JSON.stringify({ type: "attached", target: safe })); } catch { /* expected: viewer may have disconnected */ }
+          }
+          sentAttached = true;
+        }
         for (const v of s.viewers) {
           try { v.send(value); } catch { /* expected: viewer may have disconnected */ }
         }

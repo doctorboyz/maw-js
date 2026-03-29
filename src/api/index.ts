@@ -10,6 +10,10 @@ import { federationApi } from "./federation";
 import { worktreesApi } from "./worktrees";
 import { uiStateApi } from "./ui-state";
 import { deprecatedApi } from "./deprecated";
+import { costsApi } from "./costs";
+import { triggersApi } from "./triggers";
+import { avengersApi } from "./avengers";
+import { transportApi } from "./transport";
 
 export const api = new Hono();
 
@@ -24,3 +28,7 @@ api.route("/", federationApi);
 api.route("/", worktreesApi);
 api.route("/", uiStateApi);
 api.route("/", deprecatedApi);
+api.route("/", costsApi);
+api.route("/", triggersApi);
+api.route("/", avengersApi);
+api.route("/", transportApi);

@@ -64,10 +64,8 @@ export async function broadcastSessions(
   try {
     const local = await tmux.listAll();
     const all = peerSessions.length > 0 ? [...local, ...peerSessions] : local;
-    const json = JSON.stringify(all);
-    if (json === cache.json) return local;
     cache.sessions = local;
-    cache.json = json;
+    cache.json = JSON.stringify(all);
     const msg = JSON.stringify({ type: "sessions", sessions: all });
     for (const ws of clients) ws.send(msg);
     return local;

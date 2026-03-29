@@ -47,16 +47,23 @@ export class MawEngine {
   handleOpen(ws: MawWS) {
     this.clients.add(ws);
     this.startIntervals();
-    if (this.sessionCache.sessions.length > 0) {
-      ws.send(JSON.stringify({ type: "sessions", sessions: this.sessionCache.sessions }));
-      sendBusyAgents(ws, this.sessionCache.sessions);
-    } else {
-      tmux.listAll().then(sessions => {
-        this.sessionCache.sessions = sessions;
-        ws.send(JSON.stringify({ type: "sessions", sessions }));
-        sendBusyAgents(ws, sessions);
-      }).catch(() => {});
-    }
+    // Send local + federated peer sessions on connect (eager fetch if peers empty)
+    const sendInitialSessions = async () => {
+      const local = this.sessionCache.sessions.length > 0
+        ? this.sessionCache.sessions
+        : await tmux.listAll().catch(() => [] as SessionInfo[]);
+      this.sessionCache.sessions = local;
+      // Eagerly fetch peers if cache is empty but peers configured
+      if (this.peerSessionsCache.length === 0 && getPeers().length > 0) {
+        this.peerSessionsCache = await getAggregatedSessions([]).catch(() => []);
+      }
+      const all = this.peerSessionsCache.length > 0
+        ? [...local, ...this.peerSessionsCache]
+        : local;
+      ws.send(JSON.stringify({ type: "sessions", sessions: all }));
+      sendBusyAgents(ws, local);
+    };
+    sendInitialSessions().catch(() => {});
     ws.send(JSON.stringify({ type: "feed-history", events: this.feedBuffer.slice(-50) }));
   }
 

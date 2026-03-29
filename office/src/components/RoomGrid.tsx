@@ -63,12 +63,27 @@ export const RoomGrid = memo(function RoomGrid({ sessions, agents, onSelectAgent
                 className="flex items-center justify-between px-5 py-3 rounded-t-3xl border-b"
                 style={{ background: `${style.wall}dd`, borderColor: `${style.accent}15` }}
               >
-                <span
-                  className="text-xs font-bold tracking-[2px] uppercase"
-                  style={{ color: style.accent }}
-                >
-                  {style.label}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span
+                    className="text-xs font-bold tracking-[2px] uppercase"
+                    style={{ color: style.accent }}
+                  >
+                    {style.label}
+                  </span>
+                  {s.source ? (
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded flex items-center gap-1"
+                      style={{ background: "rgba(168,85,247,0.15)", color: "#c084fc" }}>
+                      <span className="w-1 h-1 rounded-full" style={{ background: "#c084fc" }} />
+                      {(() => { try { return new URL(s.source).hostname; } catch { return s.source; } })()}
+                    </span>
+                  ) : (
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded flex items-center gap-1"
+                      style={{ background: "rgba(76,175,80,0.15)", color: "#66bb6a" }}>
+                      <span className="w-1 h-1 rounded-full" style={{ background: "#66bb6a" }} />
+                      local
+                    </span>
+                  )}
+                </div>
                 <span
                   className="text-[10px] font-bold px-2 py-0.5 rounded-md"
                   style={{ color: style.accent, background: `${style.accent}15` }}

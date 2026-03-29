@@ -155,12 +155,18 @@ export class Tmux {
     return raw.split("\n")[0] || "";
   }
 
-  /** Batch-check which panes are running what command. */
+  /** Batch-check which panes are running what command — single tmux call. */
   async getPaneCommands(targets: string[]): Promise<Record<string, string>> {
     const result: Record<string, string> = {};
-    await Promise.allSettled(targets.map(async (t) => {
-      try { result[t] = await this.getPaneCommand(t); } catch { /* expected: pane may have closed */ }
-    }));
+    try {
+      // Single call: list ALL panes with session:window_index + command
+      const raw = await this.run("list-panes", "-a", "-F", "#{session_name}:#{window_index}|||#{pane_current_command}");
+      const targetSet = new Set(targets);
+      for (const line of raw.split("\n").filter(Boolean)) {
+        const [target, cmd] = line.split("|||");
+        if (targetSet.has(target)) result[target] = cmd || "";
+      }
+    } catch { /* expected: tmux may not be running */ }
     return result;
   }
 

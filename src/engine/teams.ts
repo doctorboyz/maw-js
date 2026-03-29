@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { execSync } from "child_process";
+import { tmux } from "../tmux";
 import type { MawWS } from "../types";
 
 interface TeamData {
@@ -15,10 +15,10 @@ interface TeamData {
 const TEAMS_DIR = join(homedir(), ".claude/teams");
 const TASKS_DIR = join(homedir(), ".claude/tasks");
 
-/** Get all live tmux pane IDs */
-function livePaneIds(): Set<string> {
+/** Get all live tmux pane IDs (async via tmux abstraction) */
+async function livePaneIds(): Promise<Set<string>> {
   try {
-    const raw = execSync("tmux list-panes -a -F '#{pane_id}'", { encoding: "utf-8", timeout: 2000 });
+    const raw = await tmux.run("list-panes", "-a", "-F", "#{pane_id}");
     return new Set(raw.split("\n").filter(Boolean));
   } catch { return new Set(); }
 }
@@ -44,12 +44,12 @@ function isTeamAlive(members: any[], panes: Set<string>): boolean {
 }
 
 /** Scan all teams + tasks, return current state with liveness */
-export function scanTeams(): TeamData[] {
+export async function scanTeams(): Promise<TeamData[]> {
   try {
     const dirs = readdirSync(TEAMS_DIR).filter(d =>
       existsSync(join(TEAMS_DIR, d, "config.json"))
     );
-    const panes = livePaneIds();
+    const panes = await livePaneIds();
     return dirs.map(d => {
       try {
         const config = JSON.parse(readFileSync(join(TEAMS_DIR, d, "config.json"), "utf-8"));
