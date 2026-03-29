@@ -26,7 +26,7 @@ export function createTransportRouter(): TransportRouter {
   router.register(tmux);
 
   // 2. MQTT if configured
-  const mqttConfig = (config as any).mqtt as Partial<MqttConfig> | undefined;
+  const mqttConfig = config.mqtt;
   if (mqttConfig?.broker) {
     router.register(
       new MqttTransport({
@@ -34,8 +34,8 @@ export function createTransportRouter(): TransportRouter {
         clientId: mqttConfig.clientId,
         username: mqttConfig.username,
         password: mqttConfig.password,
-        selfName: config.host || "maw",
-        selfHost: config.host || "local",
+        selfName: mqttConfig.selfName || config.node || "maw",
+        selfHost: mqttConfig.selfHost || config.node || "local",
       }),
     );
   }

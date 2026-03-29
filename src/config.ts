@@ -44,6 +44,8 @@ export interface MawConfig {
   namedPeers?: PeerConfig[];
   /** Agent → node mapping (e.g. { "homekeeper": "mba", "neo": "white" }) */
   agents?: Record<string, string>;
+  /** MQTT broker config */
+  mqtt?: { broker: string; clientId?: string; username?: string; password?: string; selfName?: string; selfHost?: string };
 }
 
 const DEFAULTS: MawConfig = {
@@ -201,6 +203,15 @@ function validateConfig(raw: Record<string, unknown>): Partial<MawConfig> {
       result.agents = raw.agents;
     } else {
       warn("agents", "must be an object mapping agent names to node names");
+    }
+  }
+
+  // mqtt: object with broker URL
+  if ("mqtt" in raw) {
+    if (raw.mqtt && typeof raw.mqtt === "object" && !Array.isArray(raw.mqtt)) {
+      result.mqtt = raw.mqtt;
+    } else {
+      warn("mqtt", "must be an object with broker URL");
     }
   }
 
