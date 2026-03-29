@@ -204,7 +204,7 @@ export function saveConfig(update: Partial<MawConfig>) {
 
 /** Validate config shape with native TS checks (no Zod).
  *  Returns array of error strings — empty means valid. */
-export function validateConfig(config: unknown): string[] {
+export function validateConfigShape(config: unknown): string[] {
   const errors: string[] = [];
   if (!config || typeof config !== "object") return ["Config must be an object"];
   const c = config as Record<string, unknown>;
