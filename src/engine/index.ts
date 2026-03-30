@@ -138,8 +138,6 @@ export class MawEngine {
     };
     sendInitialSessions().catch(() => {});
     ws.send(JSON.stringify({ type: "feed-history", events: this.feedBuffer.slice(-50) }));
-    // Initial preview snapshot on connect (one-time, not polled)
-    setTimeout(() => this.pushPreviews(ws), 1000);
   }
 
   handleMessage(ws: MawWS, msg: string | Buffer) {
