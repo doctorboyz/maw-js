@@ -71,7 +71,7 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
   // MQTT bridge — publish feed events to MQTT topics (if broker configured)
   try {
     const { startMqttBridge } = require("./engine/mqtt-bridge");
-    startMqttBridge(feedListeners);
+    startMqttBridge(feedListeners, feedBuffer);
   } catch {}
 
 

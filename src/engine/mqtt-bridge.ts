@@ -22,7 +22,7 @@ const STOP_EVENTS = new Set(["Stop", "SessionEnd"]);
 let client: mqtt.MqttClient | null = null;
 let sessionInterval: ReturnType<typeof setInterval> | null = null;
 
-export function startMqttBridge(feedListeners: Set<(event: FeedEvent) => void>): void {
+export function startMqttBridge(feedListeners: Set<(event: FeedEvent) => void>, feedBuffer?: FeedEvent[]): void {
   const config = loadConfig();
   const broker = config.mqtt?.broker;
   if (!broker) return;
@@ -40,16 +40,6 @@ export function startMqttBridge(feedListeners: Set<(event: FeedEvent) => void>):
   } catch {
     return;
   }
-
-  client.on("connect", () => {
-    console.log(`[mqtt-bridge] connected to ${broker}`);
-    // Subscribe to incoming messages for local agents
-    client!.subscribe("maw/v1/oracle/+/inbox", { qos: 1 });
-  });
-
-  client.on("error", (err) => {
-    console.error(`[mqtt-bridge] ${err.message}`);
-  });
 
   // --- Publish feed events to MQTT topics ---
 
@@ -88,6 +78,34 @@ export function startMqttBridge(feedListeners: Set<(event: FeedEvent) => void>):
   };
 
   feedListeners.add(feedListener);
+
+  // --- Connect handler: publish buffered events + sessions immediately ---
+
+  client.on("connect", () => {
+    console.log(`[mqtt-bridge] connected to ${broker}`);
+    client!.subscribe("maw/v1/oracle/+/inbox", { qos: 1 });
+
+    // Publish existing feed buffer so retained status is set on startup
+    if (feedBuffer?.length) {
+      for (const event of feedBuffer.slice(-50)) {
+        feedListener(event);
+      }
+      console.log(`[mqtt-bridge] published ${Math.min(feedBuffer.length, 50)} buffered events`);
+    }
+
+    // Publish sessions immediately (don't wait for 10s interval)
+    listSessions().then(sessions => {
+      client!.publish(
+        `maw/v1/node/${node}/sessions`,
+        JSON.stringify({ node, sessions, ts: Date.now() }),
+        { qos: 0, retain: true },
+      );
+    }).catch(() => {});
+  });
+
+  client.on("error", (err) => {
+    console.error(`[mqtt-bridge] ${err.message}`);
+  });
 
   // --- Publish session list periodically (retained) ---
 
