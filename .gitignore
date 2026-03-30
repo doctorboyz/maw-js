@@ -3,6 +3,8 @@ dist/
 dist-*/
 maw.config.json
 ui-state.json
+asks.json
+.tmp/
 
 # Build artifacts
 wasm-office/target/
