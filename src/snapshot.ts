@@ -65,7 +65,7 @@ export async function takeSnapshot(trigger: string): Promise<string> {
   // Filename: YYYYMMDD-HHMM.json
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
-  const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   const filename = `${ts}.json`;
   const filepath = join(SNAPSHOT_DIR, filename);
 
