@@ -265,7 +265,10 @@ function selectSession(name, el) {
 function renderTimeline() {
   const tl = document.getElementById('timeline');
   const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  tl.innerHTML = allSnaps.map((s, i) => {
+  // Reverse: oldest at top, newest at bottom (like macOS Time Machine)
+  const reversed = [...allSnaps].reverse();
+  tl.innerHTML = reversed.map((s, ri) => {
+    const i = allSnaps.length - 1 - ri; // map back to original index
     const d = new Date(s.timestamp);
     const label = `${d.toLocaleDateString('en-GB')} ${days[d.getDay()]} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
     return `<div class="tl-tick${i === 0 ? ' active' : ''}" data-index="${i}" onclick="showIndex(${i})"><span class="tl-label">${label}</span></div>`;
@@ -276,8 +279,10 @@ function showIndex(idx) {
   if (idx < 0 || idx >= allSnaps.length) return;
   currentIndex = idx;
 
-  // Update timeline
-  document.querySelectorAll('.tl-tick').forEach((t, i) => t.classList.toggle('active', i === idx));
+  // Update timeline (reversed: bottom = newest)
+  document.querySelectorAll('.tl-tick').forEach(t => {
+    t.classList.toggle('active', parseInt(t.dataset.index) === idx);
+  });
 
   // Render card stack (show current + 4 behind)
   const stack = document.getElementById('card-stack');
