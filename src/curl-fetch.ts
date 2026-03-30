@@ -35,8 +35,8 @@ export async function curlFetch(url: string, opts?: {
     if (token) {
       const urlObj = new URL(url);
       const headers = signHeaders(token, opts?.method || "GET", urlObj.pathname);
-      args.push("-H", `X-Maw-Timestamp: ${headers["X-Maw-Timestamp"]}`);
-      args.push("-H", `X-Maw-Signature: ${headers["X-Maw-Signature"]}`);
+      args.push("-H", `X-Maw-Timestamp:${headers["X-Maw-Timestamp"]}`);
+      args.push("-H", `X-Maw-Signature:${headers["X-Maw-Signature"]}`);
     }
   } catch {}
 
