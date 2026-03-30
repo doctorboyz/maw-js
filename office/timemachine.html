@@ -250,25 +250,65 @@
 
 <script>
 const API = location.origin;
-let allSnaps = [];
-let allDetails = {};
+let allSnaps = [];     // daily merged snapshots (newest first)
+let allDetails = {};   // keyed by day string
 let currentIndex = 0;
-let selectedSession = null; // null = all
+let selectedSession = null;
 
 fetch(`${API}/api/auth/status`).then(r => r.json()).then(d => {
   document.getElementById('node-name').textContent = d.node || location.hostname;
 }).catch(() => {});
 
 async function load() {
-  allSnaps = await fetch(`${API}/api/snapshots`).then(r => r.json());
-  document.getElementById('count').textContent = `${allSnaps.length} snapshots`;
-  if (allSnaps.length === 0) return;
+  const rawSnaps = await fetch(`${API}/api/snapshots`).then(r => r.json());
+  if (rawSnaps.length === 0) { document.getElementById('count').textContent = '0 snapshots'; return; }
 
-  // Preload all snapshot details
-  await Promise.all(allSnaps.map(async (s) => {
-    const data = await fetch(`${API}/api/snapshots/${s.file}`).then(r => r.json());
-    allDetails[s.file] = data;
+  // Load all raw details
+  const rawDetails = {};
+  await Promise.all(rawSnaps.map(async (s) => {
+    rawDetails[s.file] = await fetch(`${API}/api/snapshots/${s.file}`).then(r => r.json());
   }));
+
+  // Merge by day: union of all sessions/windows seen that day
+  const dayMap = new Map(); // "2026-03-30" → { sessions: Map<name, Set<windowName>>, triggers: [], count: 0 }
+  for (const s of [...rawSnaps].reverse()) { // oldest first for merging
+    const d = new Date(s.timestamp);
+    const dayKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    if (!dayMap.has(dayKey)) {
+      dayMap.set(dayKey, { sessions: new Map(), triggers: new Set(), count: 0, date: d, lastTimestamp: s.timestamp });
+    }
+    const day = dayMap.get(dayKey);
+    day.count++;
+    day.triggers.add(s.trigger);
+    day.lastTimestamp = s.timestamp;
+    const data = rawDetails[s.file];
+    if (data) {
+      for (const sess of data.sessions) {
+        if (!day.sessions.has(sess.name)) day.sessions.set(sess.name, new Set());
+        for (const w of sess.windows) day.sessions.get(sess.name).add(w.name);
+      }
+    }
+  }
+
+  // Convert to array format (newest first)
+  allSnaps = [];
+  for (const [dayKey, day] of [...dayMap.entries()].reverse()) {
+    const sessions = [...day.sessions.entries()]
+      .sort(([a],[b]) => a.localeCompare(b))
+      .map(([name, wins]) => ({ name, windows: [...wins].map(w => ({ name: w })) }));
+    const windowCount = sessions.reduce((a,s) => a + s.windows.length, 0);
+    allSnaps.push({
+      file: dayKey,
+      timestamp: day.lastTimestamp,
+      trigger: [...day.triggers].join('+'),
+      sessionCount: sessions.length,
+      windowCount,
+      snapCount: day.count,
+    });
+    allDetails[dayKey] = { timestamp: day.lastTimestamp, trigger: [...day.triggers].join('+'), node: 'white', sessions };
+  }
+
+  document.getElementById('count').textContent = `${allSnaps.length} days (${rawSnaps.length} snapshots)`;
 
   renderSelector();
   renderTimeline();
@@ -352,7 +392,8 @@ function showIndex(idx) {
     }).filter(Boolean);
 
     const d = new Date(s.timestamp);
-    const dateStr = `${d.toLocaleDateString('en-GB')} ${days[d.getDay()]} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    const dateStr = `${d.toLocaleDateString('en-GB')} ${days[d.getDay()]}`;
+    const snapLabel = s.snapCount ? ` (${s.snapCount} snapshots)` : '';
     const isActive = offset === 0;
 
     const scale = 1 - offset * 0.05;
@@ -365,7 +406,7 @@ function showIndex(idx) {
       opacity: ${opacity}; z-index: ${10 - offset}; ${blur}
     " onclick="showIndex(${i})">
       <div class="card-header">
-        <div class="card-date">${dateStr}</div>
+        <div class="card-date">${dateStr}<span style="color:#666;font-size:0.7em;margin-left:8px">${snapLabel}</span></div>
         <div class="card-trigger ${s.trigger}">${s.trigger}</div>
       </div>
       <div class="card-stats">${filtered.length} sessions, ${filtered.reduce((a,s) => a + s.windows.length, 0)} windows</div>
@@ -435,7 +476,7 @@ async function rewindTo(targetIdx) {
     const s = allSnaps[i];
     if (s) {
       const d = new Date(s.timestamp);
-      dateEl.textContent = `${d.toLocaleDateString('en-GB')} ${days[d.getDay()]} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+      dateEl.textContent = `${d.toLocaleDateString('en-GB')} ${days[d.getDay()]}`;
     }
 
     await new Promise(r => setTimeout(r, baseDelay));
