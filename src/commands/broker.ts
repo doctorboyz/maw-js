@@ -28,8 +28,11 @@ function hasMosquitto(): string | null {
 
 function isMosquittoRunning(port: number): boolean {
   try {
-    const out = execSync(`ss -tlnp sport = :${port} 2>/dev/null`, { encoding: "utf-8" });
-    return out.includes("mosquitto");
+    // pgrep is user-agnostic, works without root
+    execSync(`pgrep -x mosquitto`, { encoding: "utf-8" });
+    // Verify it's actually listening on the expected port
+    const out = execSync(`ss -tln sport = :${port} 2>/dev/null`, { encoding: "utf-8" });
+    return out.includes(`:${port}`);
   } catch {
     return false;
   }
