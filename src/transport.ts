@@ -12,6 +12,37 @@
 
 import type { FeedEvent } from "./lib/feed";
 
+/** Transport failure reasons (inspired by OpenClaw's FailoverReason) */
+export type TransportFailureReason =
+  | "timeout"        // Network timeout
+  | "unreachable"    // Host/peer down
+  | "auth"           // Authentication failed
+  | "rate_limit"     // Too many requests
+  | "rejected"       // Peer rejected message
+  | "parse_error"    // Malformed response
+  | "unknown";       // Unclassified
+
+/** Result of a transport send attempt */
+export interface TransportResult {
+  ok: boolean;
+  via: string;
+  reason?: TransportFailureReason;
+  retryable: boolean;
+}
+
+/** Classify common error patterns into failure reasons */
+export function classifyError(err: unknown): { reason: TransportFailureReason; retryable: boolean } {
+  if (!err) return { reason: "unknown", retryable: false };
+  const msg = String(err).toLowerCase();
+  if (/timeout|etimedout|econnreset/.test(msg)) return { reason: "timeout", retryable: true };
+  if (/econnrefused|unreachable|enetunreach/.test(msg)) return { reason: "unreachable", retryable: true };
+  if (/401|403|auth|unauthorized|forbidden/.test(msg)) return { reason: "auth", retryable: false };
+  if (/429|rate.?limit|too many/.test(msg)) return { reason: "rate_limit", retryable: true };
+  if (/400|reject|denied/.test(msg)) return { reason: "rejected", retryable: false };
+  if (/parse|json|syntax/.test(msg)) return { reason: "parse_error", retryable: false };
+  return { reason: "unknown", retryable: false };
+}
+
 /** Where a message should be delivered */
 export interface TransportTarget {
   oracle: string;        // e.g. "neo", "pulse"
@@ -25,7 +56,7 @@ export interface TransportMessage {
   to: string;            // recipient oracle name
   body: string;          // the actual message text
   timestamp: number;     // epoch ms
-  transport: "tmux" | "mqtt" | "http";  // which channel carried it
+  transport: "tmux" | "mqtt" | "http" | "hub";  // which channel carried it
 }
 
 /** Presence info broadcast by each host */
@@ -111,15 +142,24 @@ export class TransportRouter {
     await Promise.allSettled(this.transports.map((t) => t.disconnect()));
   }
 
-  /** Send a message — routes through the first transport that can reach the target */
-  async send(target: TransportTarget, message: string, from: string): Promise<{ sent: boolean; via: string }> {
+  /** Send a message — routes through the first transport that can reach the target, with failover */
+  async send(target: TransportTarget, message: string, from: string): Promise<TransportResult> {
     for (const t of this.transports) {
       if (t.connected && t.canReach(target)) {
-        const ok = await t.send(target, message);
-        if (ok) return { sent: true, via: t.name };
+        try {
+          const ok = await t.send(target, message);
+          if (ok) return { ok: true, via: t.name, retryable: false };
+          // Send returned false — try next transport
+          console.log(`[transport] ${t.name}: send failed for ${target.oracle}, trying next`);
+        } catch (err) {
+          const { reason, retryable } = classifyError(err);
+          console.log(`[transport] ${t.name}: ${reason}${retryable ? " (retryable)" : ""} — trying next`);
+          if (!retryable) return { ok: false, via: t.name, reason, retryable };
+          // retryable → continue to next transport
+        }
       }
     }
-    return { sent: false, via: "none" };
+    return { ok: false, via: "none", reason: "unreachable", retryable: false };
   }
 
   /** Broadcast presence through all connected transports */

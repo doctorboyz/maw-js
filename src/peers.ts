@@ -1,5 +1,6 @@
 import { loadConfig } from "./config";
 import type { Session } from "./ssh";
+import { curlFetch } from "./curl-fetch";
 
 export interface PeerStatus {
   url: string;
@@ -13,7 +14,7 @@ export interface PeerStatus {
 async function checkPeerReachable(url: string): Promise<{ reachable: boolean; latency: number }> {
   const start = Date.now();
   try {
-    const res = await fetch(`${url}/api/sessions`, { method: "GET", signal: AbortSignal.timeout(5000) });
+    const res = await curlFetch(`${url}/api/sessions`, { timeout: 5000 });
     const latency = Date.now() - start;
     return { reachable: res.ok, latency };
   } catch {
@@ -34,9 +35,9 @@ export function getPeers(): string[] {
  */
 async function fetchPeerSessions(url: string): Promise<Session[]> {
   try {
-    const res = await fetch(`${url}/api/sessions`, { signal: AbortSignal.timeout(5000) });
+    const res = await curlFetch(`${url}/api/sessions`, { timeout: 5000 });
     if (!res.ok) return [];
-    return await res.json();
+    return res.data || [];
   } catch {
     return [];
   }
@@ -106,11 +107,10 @@ export async function findPeerForTarget(target: string, localSessions: Session[]
  */
 export async function sendKeysToPeer(peerUrl: string, target: string, text: string): Promise<boolean> {
   try {
-    const res = await fetch(`${peerUrl}/api/send`, {
+    const res = await curlFetch(`${peerUrl}/api/send`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ target, text }),
-      signal: AbortSignal.timeout(5000),
+      timeout: 5000,
     });
     return res.ok;
   } catch {

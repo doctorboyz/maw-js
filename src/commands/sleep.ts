@@ -4,6 +4,7 @@ import { saveTabOrder } from "../tab-order";
 import { appendFile, mkdir } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
+import { takeSnapshot } from "../snapshot";
 
 /**
  * maw sleep <oracle> [window]
@@ -105,4 +106,7 @@ async function doSleep(session: string, windowName: string, oracle: string) {
   } catch (e) { console.error(`\x1b[33m⚠\x1b[0m sleep log write failed: ${e}`); }
 
   console.log(`\x1b[32msleep\x1b[0m ${oracle} (${windowName})`);
+
+  // Snapshot after sleep
+  takeSnapshot("sleep").catch(() => {});
 }

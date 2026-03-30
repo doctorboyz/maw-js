@@ -1,5 +1,6 @@
 import { execSync } from "child_process";
 import { loadConfig } from "../config";
+import { curlFetch } from "../curl-fetch";
 
 export async function cmdHealth() {
   const checks: { name: string; status: string; detail: string }[] = [];
@@ -71,7 +72,7 @@ export async function cmdHealth() {
   } else {
     for (const peer of peers) {
       try {
-        const r = await fetch(`${peer}/api/federation/status`, { signal: AbortSignal.timeout(3000) });
+        const r = await curlFetch(`${peer}/api/federation/status`, { timeout: 3000 });
         checks.push({ name: `peer ${peer}`, status: r.ok ? "ok" : "warn", detail: r.ok ? "online" : `HTTP ${r.status}` });
       } catch {
         checks.push({ name: `peer ${peer}`, status: "fail", detail: "unreachable" });

@@ -3,6 +3,7 @@ import { loadConfig } from "../config";
 import { resolveFleetSession } from "./wake";
 import { runHook } from "../hooks";
 import { scanWorktrees } from "../worktrees";
+import { curlFetch } from "../curl-fetch";
 
 /** Resolve which sessions to search for an oracle query (#86). */
 function resolveSearchSessions(query: string, sessions: Session[]): Session[] {
@@ -74,6 +75,25 @@ export async function cmdList() {
 }
 
 export async function cmdPeek(query?: string) {
+  const config = loadConfig();
+
+  // Node prefix: "white:neo-maw-js" → peek remote agent via federation
+  if (query && query.includes(":") && !query.includes("/")) {
+    const [nodeName, agentName] = query.split(":", 2);
+    const peer = config.namedPeers?.find(p => p.name === nodeName);
+    const peerUrl = peer?.url || config.peers?.find(p => p.includes(nodeName));
+    if (peerUrl) {
+      const res = await curlFetch(`${peerUrl}/api/capture?target=${encodeURIComponent(agentName)}`);
+      if (res.ok && res.data?.content) {
+        console.log(`\x1b[36m--- ${query} (${nodeName}) ---\x1b[0m`);
+        console.log(res.data.content);
+        return;
+      }
+      console.error(`\x1b[31merror\x1b[0m: capture failed for ${agentName} on ${nodeName}${res.data?.error ? `: ${res.data.error}` : ""}`);
+      process.exit(1);
+    }
+  }
+
   const sessions = await listSessions();
   if (!query) {
     // Peek all — one line per agent
@@ -101,23 +121,102 @@ export async function cmdPeek(query?: string) {
 }
 
 export async function cmdSend(query: string, message: string, force = false) {
-  const sessions = await listSessions();
-  const searchIn = resolveSearchSessions(query, sessions);
-  const target = findWindow(searchIn, query);
-  if (!target) { console.error(`window not found: ${query}`); process.exit(1); }
+  const config = loadConfig();
 
-  // Detect active Claude session (#17)
-  if (!force) {
-    const cmd = await getPaneCommand(target);
-    const isAgent = /claude|codex|node/i.test(cmd);
-    if (!isAgent) {
-      console.error(`\x1b[31merror\x1b[0m: no active Claude session in ${target} (running: ${cmd})`);
-      console.error(`\x1b[33mhint\x1b[0m:  run \x1b[36mmaw wake ${query}\x1b[0m first, or use \x1b[36m--force\x1b[0m to send anyway`);
+  // Node prefix syntax: "mba:homekeeper" → force route to mba node
+  if (query.includes(":") && !query.includes("/")) {
+    const [nodeName, agentName] = query.split(":", 2);
+    const peer = config.namedPeers?.find(p => p.name === nodeName);
+    const peerUrl = peer?.url || config.peers?.find(p => p.includes(nodeName));
+    if (peerUrl) {
+      const res = await curlFetch(`${peerUrl}/api/send`, {
+        method: "POST",
+        body: JSON.stringify({ target: agentName, text: message }),
+      });
+      if (res.ok && res.data?.ok) {
+        console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${nodeName} → ${res.data.target || agentName}: ${message}`);
+        if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, 100)}\x1b[0m`);
+        await runHook("after_send", { to: query, message });
+        return;
+      }
+      console.error(`\x1b[31mfailed\x1b[0m ⚡ ${nodeName} → ${agentName}: ${res.data?.error || "send failed"}`);
       process.exit(1);
     }
   }
 
-  await sendKeys(target, message);
-  await runHook("after_send", { to: query, message });
-  console.log(`\x1b[32msent\x1b[0m → ${target}: ${message}`);
+  const sessions = await listSessions();
+  const searchIn = resolveSearchSessions(query, sessions);
+  const target = findWindow(searchIn, query);
+
+  // Local target found → send via tmux
+  if (target) {
+    // Detect active Claude session (#17)
+    if (!force) {
+      const cmd = await getPaneCommand(target);
+      const isAgent = /claude|codex|node/i.test(cmd);
+      if (!isAgent) {
+        console.error(`\x1b[31merror\x1b[0m: no active Claude session in ${target} (running: ${cmd})`);
+        console.error(`\x1b[33mhint\x1b[0m:  run \x1b[36mmaw wake ${query}\x1b[0m first, or use \x1b[36m--force\x1b[0m to send anyway`);
+        process.exit(1);
+      }
+    }
+
+    await sendKeys(target, message);
+    await runHook("after_send", { to: query, message });
+    // Delivery confirmation: capture last line after brief delay
+    await Bun.sleep(150);
+    let lastLine = "";
+    try {
+      const content = await capture(target, 3);
+      lastLine = content.split("\n").filter(l => l.trim()).pop() || "";
+    } catch {}
+    console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${message}`);
+    if (lastLine) console.log(`\x1b[90m  ⤷ ${lastLine.slice(0, 100)}\x1b[0m`);
+    return;
+  }
+
+  // Not found locally → check agent registry for remote routing
+  const agentNode = config.agents?.[query] || config.agents?.[query.replace(/-oracle$/, "")];
+  if (agentNode && agentNode !== (config.node || "local")) {
+    // Route via federation (same as maw wire but auto-detected)
+    const port = config.port || 3456;
+    const res = await curlFetch(`http://localhost:${port}/api/send`, {
+      method: "POST",
+      body: JSON.stringify({ target: query, text: message }),
+    });
+    if (res.ok && res.data?.ok) {
+      const source = res.data.source === "local" ? "local" : `⚡ ${res.data.source}`;
+      console.log(`\x1b[32mdelivered\x1b[0m ${source} → ${res.data.target}: ${message}`);
+      if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, 100)}\x1b[0m`);
+      await runHook("after_send", { to: query, message });
+      return;
+    }
+    console.error(`\x1b[31mfailed\x1b[0m: agent ${query} → node "${agentNode}" — ${res.data?.error || "send failed"}`);
+    process.exit(1);
+  }
+
+  console.error(`\x1b[31merror\x1b[0m: window not found: ${query}`);
+  if (config.agents && Object.keys(config.agents).length > 0) {
+    console.error(`\x1b[33mhint\x1b[0m:  known agents: ${Object.keys(config.agents).join(", ")}`);
+  }
+  process.exit(1);
+}
+
+/** maw wire — federation send via local maw server's /api/send (routes to peers) */
+export async function cmdWire(query: string, message: string) {
+  const config = loadConfig();
+  const port = config.port || 3456;
+
+  const res = await curlFetch(`http://localhost:${port}/api/send`, {
+    method: "POST",
+    body: JSON.stringify({ target: query, text: message }),
+  });
+
+  if (!res.ok || !res.data?.ok) {
+    console.error(`\x1b[31merror\x1b[0m: ${res.data?.error || "wire send failed"}`);
+    process.exit(1);
+  }
+
+  const source = res.data.source === "local" ? "local" : `⚡ ${res.data.source}`;
+  console.log(`\x1b[36mwired\x1b[0m ${source} → ${res.data.target}: ${message}`);
 }

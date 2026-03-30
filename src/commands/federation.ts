@@ -1,10 +1,11 @@
 import { getFederationStatus, getPeers } from "../peers";
+import { curlFetch } from "../curl-fetch";
 
 async function fetchPeerAgentCount(url: string): Promise<number> {
   try {
-    const res = await fetch(`${url}/api/sessions`, { signal: AbortSignal.timeout(3000) });
+    const res = await curlFetch(`${url}/api/sessions`, { timeout: 3000 });
     if (!res.ok) return 0;
-    const sessions: { windows: unknown[] }[] = await res.json();
+    const sessions: { windows: unknown[] }[] = res.data || [];
     return sessions.reduce((n, s) => n + (s.windows?.length || 0), 0);
   } catch {
     return 0;

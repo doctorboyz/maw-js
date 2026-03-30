@@ -1,3 +1,0 @@
-cargo:rustc-cfg=send_sync
-cargo:rustc-cfg=webgl
-cargo:rustc-cfg=gles

@@ -6,6 +6,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { FLEET_DIR } from "../paths";
 import { cmdReunion } from "./reunion";
+import { takeSnapshot } from "../snapshot";
 
 export interface DoneOpts {
   force?: boolean;
@@ -218,6 +219,9 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
   if (!removedFromConfig) {
     console.log(`  \x1b[90m○\x1b[0m not in any fleet config`);
   }
+
+  // Snapshot after done
+  takeSnapshot("done").catch(() => {});
 
   console.log();
 }

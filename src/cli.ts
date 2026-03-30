@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 process.env.MAW_CLI = "1";
 
-import { cmdList, cmdPeek, cmdSend } from "./commands/comm";
+import { cmdList, cmdPeek, cmdSend, cmdWire } from "./commands/comm";
 import { cmdView } from "./commands/view";
 import { cmdCompletions } from "./commands/completions";
 import { cmdOverview } from "./commands/overview";
@@ -28,6 +28,7 @@ import { cmdCosts } from "./commands/costs";
 import { cmdTriggers } from "./commands/triggers";
 import { cmdHealth } from "./commands/health";
 import { cmdBroadcast } from "./commands/broadcast";
+import { cmdWorkspaceCreate, cmdWorkspaceJoin, cmdWorkspaceShare, cmdWorkspaceUnshare, cmdWorkspaceLs, cmdWorkspaceAgents, cmdWorkspaceInvite, cmdWorkspaceLeave, cmdWorkspaceStatus } from "./commands/workspace";
 import { logAudit } from "./audit";
 
 const args = process.argv.slice(2);
@@ -43,6 +44,7 @@ function usage() {
   maw ls                      List sessions + windows
   maw peek [agent]            Peek agent screen (or all)
   maw hey <agent> <msg...>    Send message to agent (alias: tell)
+  maw wire <agent> <msg...>   Send via federation (curl over WireGuard)
   maw wake <oracle> [task]    Wake oracle in tmux window + claude
   maw wake <oracle> --issue N Wake oracle with GitHub issue as prompt
   maw wake <oracle> --incubate org/repo  Clone repo + worktree
@@ -101,10 +103,21 @@ function usage() {
   maw costs                   Token usage + estimated cost per agent
   maw pr [window]             Create PR from current branch (links issue if branch has issue-N)
   maw triggers                List configured workflow triggers
+  maw ping [node]             Check peer connectivity (all or specific)
   maw transport status        Transport layer connectivity (tmux/MQTT/HTTP)
   maw avengers status         ARRA-01 rate limit monitor (all accounts)
   maw avengers best           Account with most capacity
   maw avengers traffic        Traffic stats across accounts
+  maw workspace create <name> Create workspace on hub
+  maw workspace join <code>   Join with invite code
+  maw workspace share <a...>  Share agents to workspace
+  maw workspace unshare <a..> Remove agents from workspace
+  maw workspace ls            List joined workspaces
+  maw workspace agents [id]   List all agents in workspace
+  maw workspace invite [id]   Show join code
+  maw workspace leave [id]    Leave workspace
+  maw workspace status        Connection status to hub(s)
+  maw ws ...                  Alias for workspace
   maw serve [port]            Start web UI (default: 3456)
 
 \x1b[33mWake modes:\x1b[0m
@@ -138,7 +151,14 @@ if (cmd === "--version" || cmd === "-v") {
   const pkg = require("../package.json");
   let hash = "";
   try { hash = require("child_process").execSync("git rev-parse --short HEAD", { cwd: import.meta.dir }).toString().trim(); } catch { /* expected: may not be in a git repo */ }
-  console.log(`maw v${pkg.version}${hash ? ` (${hash})` : ""}`);
+  let buildDate = "";
+  try {
+    const raw = require("child_process").execSync("git log -1 --format=%ci", { cwd: import.meta.dir }).toString().trim();
+    const d = new Date(raw);
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    buildDate = `${raw.slice(0, 10)} ${days[d.getDay()]} ${raw.slice(11, 16)}`;
+  } catch {}
+  console.log(`maw v${pkg.version}${hash ? ` (${hash})` : ""}${buildDate ? ` built ${buildDate}` : ""}`);
 } else if (!cmd || cmd === "--help" || cmd === "-h") {
   usage();
 } else if (cmd === "ls" || cmd === "list") {
@@ -150,6 +170,10 @@ if (cmd === "--version" || cmd === "-v") {
   const msgArgs = args.slice(2).filter(a => a !== "--force");
   if (!args[1] || !msgArgs.length) { console.error("usage: maw hey <agent> <message> [--force]"); process.exit(1); }
   await cmdSend(args[1], msgArgs.join(" "), force);
+} else if (cmd === "wire") {
+  const msgArgs = args.slice(2);
+  if (!args[1] || !msgArgs.length) { console.error("usage: maw wire <agent> <message>"); process.exit(1); }
+  await cmdWire(args[1], msgArgs.join(" "));
 } else if (cmd === "talk-to" || cmd === "talkto" || cmd === "talk") {
   const force = args.includes("--force");
   const msgArgs = args.slice(2).filter(a => a !== "--force");
@@ -167,6 +191,33 @@ if (cmd === "--version" || cmd === "-v") {
   await cmdFleetSyncConfigs();
 } else if (cmd === "fleet" && (args[1] === "sync-windows" || args[1] === "syncwin")) {
   await cmdFleetSync();
+} else if (cmd === "fleet" && (args[1] === "snapshots" || args[1] === "snapshot-ls")) {
+  const { listSnapshots } = await import("./snapshot");
+  const snaps = listSnapshots();
+  if (snaps.length === 0) { console.log("no snapshots yet"); process.exit(0); }
+  console.log(`\x1b[36m📸 ${snaps.length} snapshots\x1b[0m\n`);
+  for (const s of snaps) {
+    const d = new Date(s.timestamp);
+    const local = d.toLocaleString("en-GB", { timeZone: "Asia/Bangkok", hour12: false });
+    console.log(`  ${s.file.replace(".json", "")}  ${local}  \x1b[90m${s.trigger}\x1b[0m  ${s.sessionCount} sessions, ${s.windowCount} windows`);
+  }
+} else if (cmd === "fleet" && args[1] === "restore") {
+  const { loadSnapshot, latestSnapshot } = await import("./snapshot");
+  const snap = args[2] ? loadSnapshot(args[2]) : latestSnapshot();
+  if (!snap) { console.error("no snapshot found"); process.exit(1); }
+  const d = new Date(snap.timestamp);
+  const local = d.toLocaleString("en-GB", { timeZone: "Asia/Bangkok", hour12: false });
+  console.log(`\x1b[36m📸 Snapshot: ${local} (${snap.trigger})\x1b[0m\n`);
+  for (const s of snap.sessions) {
+    console.log(`\x1b[33m${s.name}\x1b[0m (${s.windows.length} windows)`);
+    for (const w of s.windows) {
+      console.log(`  ${w.name}`);
+    }
+  }
+} else if (cmd === "fleet" && args[1] === "snapshot") {
+  const { takeSnapshot } = await import("./snapshot");
+  const path = await takeSnapshot("manual");
+  console.log(`\x1b[32m📸\x1b[0m snapshot saved: ${path}`);
 } else if (cmd === "fleet" && !args[1]) {
   await cmdFleetLs();
 } else if (cmd === "done" || cmd === "finish") {
@@ -281,7 +332,7 @@ if (cmd === "--version" || cmd === "-v") {
   await cmdRename(args[1], args[2]);
 } else if (cmd === "tab" || cmd === "tabs") {
   await cmdTab(args.slice(1));
-} else if (cmd === "view" || cmd === "create-view" || cmd === "attach") {
+} else if (cmd === "view" || cmd === "create-view" || cmd === "attach" || cmd === "a") {
   if (!args[1]) { console.error("usage: maw view <agent> [window] [--clean]"); process.exit(1); }
   const clean = args.includes("--clean");
   const viewArgs = args.slice(1).filter(a => a !== "--clean");
@@ -314,6 +365,65 @@ if (cmd === "--version" || cmd === "-v") {
     console.error("usage: maw federation status");
     process.exit(1);
   }
+} else if (cmd === "workspace" || cmd === "ws") {
+  const sub = args[1]?.toLowerCase();
+  if (sub === "create") {
+    if (!args[2]) { console.error("usage: maw workspace create <name> [--hub <url>]"); process.exit(1); }
+    let hub: string | undefined;
+    for (let i = 3; i < args.length; i++) {
+      if (args[i] === "--hub" && args[i + 1]) { hub = args[++i]; }
+    }
+    await cmdWorkspaceCreate(args[2], hub);
+  } else if (sub === "join") {
+    if (!args[2]) { console.error("usage: maw workspace join <code> [--hub <url>]"); process.exit(1); }
+    let hub: string | undefined;
+    for (let i = 3; i < args.length; i++) {
+      if (args[i] === "--hub" && args[i + 1]) { hub = args[++i]; }
+    }
+    await cmdWorkspaceJoin(args[2], hub);
+  } else if (sub === "share") {
+    const agents: string[] = [];
+    let wsId: string | undefined;
+    for (let i = 2; i < args.length; i++) {
+      if ((args[i] === "--workspace" || args[i] === "--ws") && args[i + 1]) { wsId = args[++i]; }
+      else agents.push(args[i]);
+    }
+    if (agents.length === 0) { console.error("usage: maw workspace share <agent...> [--workspace <id>]"); process.exit(1); }
+    await cmdWorkspaceShare(agents, wsId);
+  } else if (sub === "unshare") {
+    const agents: string[] = [];
+    let wsId: string | undefined;
+    for (let i = 2; i < args.length; i++) {
+      if ((args[i] === "--workspace" || args[i] === "--ws") && args[i + 1]) { wsId = args[++i]; }
+      else agents.push(args[i]);
+    }
+    if (agents.length === 0) { console.error("usage: maw workspace unshare <agent...> [--workspace <id>]"); process.exit(1); }
+    await cmdWorkspaceUnshare(agents, wsId);
+  } else if (sub === "ls" || sub === "list") {
+    await cmdWorkspaceLs();
+  } else if (sub === "agents") {
+    await cmdWorkspaceAgents(args[2]);
+  } else if (sub === "invite") {
+    await cmdWorkspaceInvite(args[2]);
+  } else if (sub === "leave") {
+    await cmdWorkspaceLeave(args[2]);
+  } else if (sub === "status") {
+    await cmdWorkspaceStatus();
+  } else if (!sub) {
+    await cmdWorkspaceLs();
+  } else {
+    console.log(`\x1b[36mmaw workspace\x1b[0m \u2014 Multi-node workspace management\n`);
+    console.log(`  maw workspace create <name>          Create workspace on hub`);
+    console.log(`  maw workspace join <code>            Join with invite code`);
+    console.log(`  maw workspace share <agent...>       Share agents to workspace`);
+    console.log(`  maw workspace unshare <agent...>     Remove agents from workspace`);
+    console.log(`  maw workspace ls                     List joined workspaces`);
+    console.log(`  maw workspace agents [workspace-id]  List all agents in workspace`);
+    console.log(`  maw workspace invite [workspace-id]  Show join code`);
+    console.log(`  maw workspace leave [workspace-id]   Leave workspace`);
+    console.log(`  maw workspace status                 Connection status to hub(s)\n`);
+    console.log(`\x1b[90mAlias: maw ws ...\x1b[0m`);
+  }
 } else if (cmd === "reunion") {
   await cmdReunion(args[1]);
 } else if (cmd === "workon" || cmd === "work") {
@@ -337,6 +447,9 @@ if (cmd === "--version" || cmd === "-v") {
 } else if (cmd === "broadcast" || cmd === "shout") {
   const msg = args.slice(1).join(" ");
   await cmdBroadcast(msg);
+} else if (cmd === "ping") {
+  const { cmdPing } = await import("./commands/ping");
+  await cmdPing(args[1]);
 } else if (cmd === "transport" || cmd === "tp") {
   const sub = args[1]?.toLowerCase();
   if (!sub || sub === "status") {

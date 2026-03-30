@@ -11,6 +11,16 @@ interface AgentState {
   wasRunning: boolean;
 }
 
+/** Track agents with recent real feed events (from Claude Code hooks).
+ *  StatusDetector skips synthetic events for these — real events are authoritative. */
+const realFeedLastSeen = new Map<string, number>();
+const REAL_FEED_TTL = 60_000; // 60s — if real feed seen within this, skip synthetic
+
+/** Call this when a real feed event arrives (from POST /api/feed). */
+export function markRealFeedEvent(oracleName: string) {
+  realFeedLastSeen.set(oracleName, Date.now());
+}
+
 export interface CrashedAgent {
   target: string;
   name: string;
@@ -62,8 +72,14 @@ export class StatusDetector {
 
     const cmds = await tmux.getPaneCommands(agents.map(a => a.target));
 
+    // Only capture agents NOT running Claude (shells, idle panes).
+    // Claude agents get status from real hooks — no capture needed.
+    const needsCapture = agents.filter(a => {
+      const cmd = (cmds[`${a.session}:${a.target.split(":")[1]}`] || cmds[a.target] || "").toLowerCase();
+      return !/claude|codex|node/i.test(cmd);
+    });
     const captures = await Promise.allSettled(
-      agents.map(async a => ({ target: a.target, content: await capture(a.target, 20) }))
+      needsCapture.map(async a => ({ target: a.target, content: await capture(a.target, 20) }))
     );
     const contentMap = new Map<string, string>();
     for (const r of captures) {
@@ -75,6 +91,15 @@ export class StatusDetector {
       const cmd = (cmds[target] || "").toLowerCase();
       const isAgent = /claude|codex|node/i.test(cmd);
       const isShell = /^(zsh|bash|sh|fish)$/.test(cmd.trim());
+
+      // Skip ALL agents running Claude — real hooks handle their status.
+      // StatusDetector only needed for: crash detection (was Claude, now shell) + idle shells.
+      if (isAgent) {
+        const prev = this.state.get(target);
+        this.state.set(target, { hash: prev?.hash || "", changedAt: prev?.changedAt || now, status: prev?.status || "ready", wasRunning: true });
+        continue;
+      }
+
       const content = contentMap.get(target) || "";
       const hash = Bun.hash(stripStatusBar(content)).toString(36);
       const prev = this.state.get(target);
@@ -97,21 +122,35 @@ export class StatusDetector {
       this.state.set(target, { hash, changedAt, status, wasRunning });
 
       if (prev && status !== prev.status) {
-        const event: FeedEvent = {
-          timestamp: new Date().toISOString(),
-          oracle: name.replace(/-oracle$/, ""),
-          host: "local",
-          event: status === "busy" ? "PreToolUse" : status === "ready" ? "Stop" : status === "crashed" ? "Error" : "SessionEnd",
-          project: session,
-          sessionId: "",
-          message: status === "busy" ? "working" : status === "ready" ? "waiting" : status === "crashed" ? "crashed" : "idle",
-          ts: now,
-        };
-        const msg = JSON.stringify({ type: "feed", event });
-        for (const ws of clients) ws.send(msg);
-        for (const fn of feedListeners) fn(event);
+        // Skip synthetic events for agents with recent real feed events —
+        // real Claude Code hooks are more accurate than screen-hash polling.
+        // Still update internal state (for crash detection), just don't emit.
+        const oracleName = name.replace(/-oracle$/, "");
+        const lastReal = realFeedLastSeen.get(oracleName) || 0;
+        const hasRealFeed = now - lastReal < REAL_FEED_TTL;
+
+        if (!hasRealFeed) {
+          const event: FeedEvent = {
+            timestamp: new Date().toISOString(),
+            oracle: oracleName,
+            host: "local",
+            event: status === "busy" ? "PreToolUse" : status === "ready" ? "Stop" : status === "crashed" ? "Error" : "SessionEnd",
+            project: session,
+            sessionId: "",
+            message: status === "busy" ? "working" : status === "ready" ? "waiting" : status === "crashed" ? "crashed" : "idle",
+            ts: now,
+          };
+          const msg = JSON.stringify({ type: "feed", event });
+          for (const ws of clients) ws.send(msg);
+          for (const fn of feedListeners) fn(event);
+        }
       }
     }
+  }
+
+  /** Get status for a target */
+  getStatus(target: string): string | null {
+    return this.state.get(target)?.status ?? null;
   }
 
   /** Return agents currently in "crashed" state. */

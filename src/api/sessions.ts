@@ -1,6 +1,8 @@
 import { Hono } from "hono";
-import { listSessions, capture, sendKeys, selectWindow } from "../ssh";
+import { listSessions, capture, sendKeys, selectWindow, findWindow } from "../ssh";
 import { getAggregatedSessions, findPeerForTarget, sendKeysToPeer } from "../peers";
+import { loadConfig } from "../config";
+import { curlFetch } from "../curl-fetch";
 import { processMirror } from "../commands/overview";
 
 export const sessionsApi = new Hono();
@@ -30,23 +32,60 @@ sessionsApi.get("/mirror", async (c) => {
 });
 
 sessionsApi.post("/send", async (c) => {
-  const { target, text } = await c.req.json();
-  if (!target || !text) return c.json({ error: "target and text required" }, 400);
+  try {
+    const { target, text } = await c.req.json();
+    if (!target || !text) return c.json({ error: "target and text required" }, 400);
 
-  // Check if target is on a peer
-  const local = await listSessions();
-  const peerUrl = await findPeerForTarget(target, local);
+    const local = await listSessions();
 
-  if (peerUrl) {
-    // Route to peer
-    const ok = await sendKeysToPeer(peerUrl, target, text);
-    if (ok) return c.json({ ok: true, target, text, source: peerUrl });
-    return c.json({ error: "Failed to send to peer", target, source: peerUrl }, 502);
+    // Step 1: Fuzzy resolve locally first
+    const baseName = target.replace(/-oracle$/, "");
+    const resolved = findWindow(local, target) || findWindow(local, baseName);
+
+    if (resolved) {
+      await sendKeys(resolved, text);
+      // Brief delay for tmux to process, then capture last line as delivery proof
+      await Bun.sleep(150);
+      let lastLine = "";
+      try {
+        const content = await capture(resolved, 3);
+        lastLine = content.split("\n").filter(l => l.trim()).pop() || "";
+      } catch {}
+      return c.json({ ok: true, target: resolved, text, source: "local", lastLine });
+    }
+
+    // Step 2: Check agent registry for remote routing
+    const config = loadConfig();
+    const targetName = baseName.split(":").pop() || baseName;
+    const agentNode = config.agents?.[targetName] || config.agents?.[target];
+    if (agentNode && agentNode !== (config.node || config.host || "local")) {
+      const peer = config.namedPeers?.find(p => p.name === agentNode);
+      const peerUrl = peer?.url || config.peers?.find(p => p.includes(agentNode));
+      if (peerUrl) {
+        const res = await curlFetch(`${peerUrl}/api/send`, {
+          method: "POST",
+          body: JSON.stringify({ target, text }),
+          timeout: 10000,
+        });
+        if (res.ok && res.data?.ok) {
+          return c.json({ ok: true, target: res.data.target || target, text, source: peerUrl, lastLine: res.data.lastLine || "" });
+        }
+        return c.json({ error: `Agent ${targetName} → ${agentNode} send failed`, target, source: peerUrl }, 502);
+      }
+    }
+
+    // Step 3: Check peers via aggregated sessions
+    const peerUrl = await findPeerForTarget(target, local);
+    if (peerUrl) {
+      const ok = await sendKeysToPeer(peerUrl, target, text);
+      if (ok) return c.json({ ok: true, target, text, source: peerUrl });
+      return c.json({ error: "Failed to send to peer", target, source: peerUrl }, 502);
+    }
+
+    return c.json({ error: `target not found: ${target}`, target }, 404);
+  } catch (err) {
+    return c.json({ error: String(err) }, 500);
   }
-
-  // Send locally
-  await sendKeys(target, text);
-  return c.json({ ok: true, target, text, source: "local" });
 });
 
 sessionsApi.post("/select", async (c) => {

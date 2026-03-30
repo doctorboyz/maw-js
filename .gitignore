@@ -3,13 +3,19 @@ dist/
 dist-*/
 maw.config.json
 ui-state.json
+asks.json
+.tmp/
 
 # Build artifacts
 wasm-office/target/
+office-8bit/target/
 wasm-vm/
+.DS_Store
 
 # Bun global link artifacts
 ~/
+~/.bun/
+.wrangler/
 fleet/*.json
 !fleet/*.example.json
 ψ/

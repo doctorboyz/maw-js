@@ -7,6 +7,7 @@
 
 import { sendKeysToPeer, getAggregatedSessions } from "../peers";
 import { listSessions, findWindow } from "../ssh";
+import { curlFetch } from "../curl-fetch";
 import type { Transport, TransportTarget, TransportMessage, TransportPresence } from "../transport";
 import type { FeedEvent } from "../lib/feed";
 
@@ -64,15 +65,14 @@ export class HttpTransport implements Transport {
   }
 
   async publishFeed(event: FeedEvent): Promise<void> {
-    // Post feed event to all peers
+    // Post feed event to all peers via curlFetch (bypasses macOS Local Network Privacy)
     await Promise.allSettled(
       this.config.peers.map(async (url) => {
         try {
-          await fetch(`${url}/api/feed`, {
+          await curlFetch(`${url}/api/feed`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(event),
-            signal: AbortSignal.timeout(5000),
+            timeout: 5000,
           });
         } catch {}
       }),

@@ -5,6 +5,8 @@ import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../paths";
 import { restoreTabOrder } from "../tab-order";
+import { curlFetch } from "../curl-fetch";
+import { takeSnapshot } from "../snapshot";
 
 /**
  * Verify all windows in a session are running Claude (not empty zsh).
@@ -95,9 +97,9 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
     const peers = (config as any).peers || [];
     for (const peer of peers) {
       try {
-        const res = await fetch(`${peer}/api/sessions`, { signal: AbortSignal.timeout(10000) });
+        const res = await curlFetch(`${peer}/api/sessions`, { timeout: 10000 });
         if (!res.ok) continue;
-        const sessions = await res.json();
+        const sessions = res.data || [];
         const list = Array.isArray(sessions) ? sessions : sessions.sessions || [];
         for (const s of list) {
           const oracleLower = oracle.toLowerCase();
@@ -109,9 +111,8 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
           if (found) {
             console.log(`\x1b[36m⚡\x1b[0m ${oracle} found on peer ${peer} — waking remotely`);
             // Send wake command to peer
-            await fetch(`${peer}/api/send`, {
+            await curlFetch(`${peer}/api/send`, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ target: `${s.name}:${found.index}`, text: "" }),
             });
             console.log(`\x1b[32m✓\x1b[0m ${oracle} is running on ${peer} (session ${s.name}:${found.name})`);
@@ -180,10 +181,15 @@ export async function detectSession(oracle: string): Promise<string | null> {
   return null;
 }
 
-/** Set config env vars on a tmux session (hidden from screen output) */
+/** Set config env vars on a tmux session (hidden from screen output).
+ *  Values prefixed with "pass:" are resolved via `pass show` in the shell. */
 async function setSessionEnv(session: string): Promise<void> {
   for (const [key, val] of Object.entries(getEnvVars())) {
-    await tmux.setEnvironment(session, key, val);
+    if (val.startsWith("pass:")) {
+      await ssh(`tmux set-environment -t '${session}' ${key} "$(pass show '${val.slice(5)}')"`)
+    } else {
+      await tmux.setEnvironment(session, key, val);
+    }
   }
 }
 
@@ -365,5 +371,9 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
   }
 
   console.log(`\x1b[32m✅\x1b[0m woke '${windowName}' in ${session} → ${targetPath}`);
+
+  // Snapshot after wake
+  takeSnapshot("wake").catch(() => {});
+
   return `${session}:${windowName}`;
 }

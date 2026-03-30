@@ -8,6 +8,7 @@ import { loadConfig, buildCommand } from "../config";
 import type { FeedEvent } from "../lib/feed";
 import type { MawWS, Handler } from "../types";
 import type { Session } from "../ssh";
+import type { TransportRouter } from "../transport";
 
 type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };
 
@@ -30,6 +31,7 @@ export class MawEngine {
   private crashCheckInterval: ReturnType<typeof setInterval> | null = null;
   private lastTeamsJson = { value: "" };
   private feedUnsub: (() => void) | null = null;
+  private transportRouter: TransportRouter | null = null;
 
   private feedBuffer: FeedEvent[];
   private feedListeners: Set<(event: FeedEvent) => void>;
@@ -38,9 +40,47 @@ export class MawEngine {
     this.feedBuffer = feedBuffer;
     this.feedListeners = feedListeners;
     registerBuiltinHandlers(this);
+    // Eagerly load sessions on startup — don't wait for first WS client.
+    // Fixes: MQTT/API messages dropped when no browser is connected.
+    this.initSessionCache();
+  }
+
+  private async initSessionCache() {
+    try {
+      this.sessionCache.sessions = await tmux.listAll();
+      this.sessionCache.json = JSON.stringify({ type: "sessions", sessions: this.sessionCache.sessions });
+      console.log(`[engine] session cache initialized: ${this.sessionCache.sessions.length} sessions`);
+    } catch {
+      console.warn("[engine] session cache init failed — will retry on first WS connect");
+    }
   }
 
   on(type: string, handler: Handler) { this.handlers.set(type, handler); }
+
+  /** Set transport router — route incoming remote messages to local tmux */
+  setTransportRouter(router: TransportRouter) {
+    this.transportRouter = router;
+    router.onMessage(async (msg) => {
+      const { findWindow, sendKeys, listSessions } = await import("../ssh");
+      // Use cached sessions if available, otherwise fetch fresh
+      const sessions = this.sessionCache.sessions.length > 0
+        ? this.sessionCache.sessions
+        : await listSessions().catch(() => []);
+      const baseName = msg.to.replace(/-oracle$/, "");
+      const target = findWindow(sessions, msg.to) || findWindow(sessions, baseName);
+      if (target) {
+        await sendKeys(target, msg.body);
+        console.log(`[transport] ${msg.transport}: ${msg.from} → ${target}`);
+      } else {
+        console.log(`[transport] no target for "${msg.to}" (${sessions.length} sessions)`);
+      }
+    });
+
+    // Route local feed events to remote transports
+    this.feedListeners.add((event) => {
+      router.publishFeed(event).catch(() => {});
+    });
+  }
 
   // --- WebSocket lifecycle ---
 
@@ -106,8 +146,27 @@ export class MawEngine {
     this.previewInterval = setInterval(() => {
       for (const ws of this.clients) this.pushPreviews(ws);
     }, 2000);
-    this.statusInterval = setInterval(() => {
-      this.status.detect(this.sessionCache.sessions, this.clients, this.feedListeners);
+    this.statusInterval = setInterval(async () => {
+      await this.status.detect(this.sessionCache.sessions, this.clients, this.feedListeners);
+      // Publish presence to transport router (feeds MQTT/HTTP peers)
+      if (this.transportRouter) {
+        const config = loadConfig();
+        const host = config.host || "local";
+        for (const s of this.sessionCache.sessions) {
+          for (const w of s.windows) {
+            const target = `${s.name}:${w.index}`;
+            const state = this.status.getStatus(target);
+            if (state) {
+              this.transportRouter.publishPresence({
+                oracle: w.name.replace(/-oracle$/, ""),
+                host,
+                status: state as "busy" | "ready" | "idle" | "crashed" | "offline",
+                timestamp: Date.now(),
+              }).catch(() => {});
+            }
+          }
+        }
+      }
     }, 3000);
     // Watch Agent Teams every 3s — broadcast changes to UI
     this.teamsInterval = setInterval(() => {
