@@ -6,9 +6,9 @@ export const officeView = new Hono();
 
 officeView.get("/dashboard", (c) => c.redirect("/#orbital"));
 officeView.get("/office", (c) => c.redirect("/#office"));
-officeView.get("/assets/*", serveStatic({ root: `${MAW_ROOT}/dist-office` }));
+officeView.get("/assets/*", serveStatic({ root: `${MAW_ROOT}/ui/office` }));
 officeView.get("/office/*", serveStatic({
   root: MAW_ROOT,
-  rewriteRequestPath: (p) => p.replace(/^\/office/, "/dist-office"),
+  rewriteRequestPath: (p) => p.replace(/^\/office/, "/ui/office"),
 }));
-officeView.get("/", serveStatic({ root: `${MAW_ROOT}/dist-office`, path: "/index.html" }));
+officeView.get("/", serveStatic({ root: `${MAW_ROOT}/ui/office`, path: "/index.html" }));
