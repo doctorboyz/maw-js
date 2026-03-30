@@ -38,6 +38,10 @@ feedApi.post("/feed", async (c) => {
     ts: body.ts || Date.now(),
   };
   pushFeedEvent(event);
+  // Mark oracle name + derived window name so StatusDetector can find the match.
+  // Real feed: oracle="neo", project="neo-oracle.wt-3-maw-js" → window="neo-maw-js"
   markRealFeedEvent(event.oracle);
+  const wtMatch = event.project.match(/[.-]wt-(?:\d+-)?(.+)$/);
+  if (wtMatch) markRealFeedEvent(`${event.oracle}-${wtMatch[1]}`);
   return c.json({ ok: true });
 });
