@@ -4,7 +4,7 @@ import { pushCapture, pushPreviews, broadcastSessions, sendBusyAgents } from "./
 import { StatusDetector } from "./status";
 import { broadcastTeams } from "./teams";
 import { getAggregatedSessions, getPeers } from "../peers";
-import { loadConfig, buildCommand } from "../config";
+import { loadConfig, buildCommand, cfgInterval, cfgLimit } from "../config";
 import type { FeedEvent } from "../lib/feed";
 import type { MawWS, Handler } from "../types";
 import type { Session } from "../ssh";
@@ -104,7 +104,7 @@ export class MawEngine {
       sendBusyAgents(ws, local);
     };
     sendInitialSessions().catch(() => {});
-    ws.send(JSON.stringify({ type: "feed-history", events: this.feedBuffer.slice(-50) }));
+    ws.send(JSON.stringify({ type: "feed-history", events: this.feedBuffer.slice(-cfgLimit("feedHistory")) }));
   }
 
   handleMessage(ws: MawWS, msg: string | Buffer) {
@@ -135,25 +135,25 @@ export class MawEngine {
     if (this.captureInterval) return;
     this.captureInterval = setInterval(() => {
       for (const ws of this.clients) this.pushCapture(ws);
-    }, 50);
+    }, cfgInterval("capture"));
     this.sessionInterval = setInterval(async () => {
       this.sessionCache.sessions = await broadcastSessions(this.clients, this.sessionCache, this.peerSessionsCache);
-    }, 5000);
-    // Fetch peer sessions every 10s for federation
+    }, cfgInterval("sessions"));
+    // Fetch peer sessions for federation
     this.peerInterval = setInterval(async () => {
       if (getPeers().length === 0) { this.peerSessionsCache = []; return; }
       const all = await getAggregatedSessions([]);
       this.peerSessionsCache = all;
-    }, 10000);
+    }, cfgInterval("peerFetch"));
     this.previewInterval = setInterval(() => {
       for (const ws of this.clients) this.pushPreviews(ws);
-    }, 2000);
+    }, cfgInterval("preview"));
     this.statusInterval = setInterval(async () => {
       await this.status.detect(this.sessionCache.sessions, this.clients, this.feedListeners);
       // Publish presence to transport router (feeds MQTT/HTTP peers)
       if (this.transportRouter) {
         const config = loadConfig();
-        const host = config.host || "local";
+        const host = config.node ?? "local";
         for (const s of this.sessionCache.sessions) {
           for (const w of s.windows) {
             const target = `${s.name}:${w.index}`;
@@ -169,13 +169,13 @@ export class MawEngine {
           }
         }
       }
-    }, 3000);
-    // Watch Agent Teams every 3s — broadcast changes to UI
+    }, cfgInterval("status"));
+    // Watch Agent Teams — broadcast changes to UI
     this.teamsInterval = setInterval(() => {
       broadcastTeams(this.clients, this.lastTeamsJson);
-    }, 3000);
-    // Crash detection + auto-restart every 30s
-    this.crashCheckInterval = setInterval(() => this.handleCrashedAgents(), 30_000);
+    }, cfgInterval("teams"));
+    // Crash detection + auto-restart
+    this.crashCheckInterval = setInterval(() => this.handleCrashedAgents(), cfgInterval("crashCheck"));
 
     const listener = (event: FeedEvent) => {
       const msg = JSON.stringify({ type: "feed", event });

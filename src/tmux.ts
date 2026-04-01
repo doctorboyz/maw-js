@@ -1,5 +1,5 @@
 import { ssh } from "./ssh";
-import { loadConfig } from "./config";
+import { loadConfig, cfgLimit } from "./config";
 
 /** Resolve tmux socket path from env or config. */
 export function resolveSocket(): string | undefined {
@@ -197,8 +197,8 @@ export class Tmux {
   }
 
   async resizePane(target: string, cols: number, rows: number): Promise<void> {
-    const c = Math.max(1, Math.min(500, Math.floor(cols)));
-    const r = Math.max(1, Math.min(200, Math.floor(rows)));
+    const c = Math.max(1, Math.min(cfgLimit("ptyCols"), Math.floor(cols)));
+    const r = Math.max(1, Math.min(cfgLimit("ptyRows"), Math.floor(rows)));
     await this.tryRun("resize-pane", "-t", target, "-x", c, "-y", r);
   }
 

@@ -1,5 +1,5 @@
 import { execSync } from "child_process";
-import { loadConfig, saveConfig } from "../config";
+import { loadConfig, saveConfig, D } from "../config";
 import { MAW_ROOT } from "../paths";
 
 function pm2BrokerStatus(): { online: boolean; pid?: number; uptime?: string } {
@@ -40,8 +40,8 @@ function isMosquittoRunning(port: number): boolean {
 
 export async function cmdBrokerStart(): Promise<void> {
   const config = loadConfig();
-  const mqttPort = config.mqtt?.port || 1883;
-  const wsPort = config.mqtt?.wsPort || 9883;
+  const mqttPort = config.mqtt?.port ?? D.mqtt.port;
+  const wsPort = config.mqtt?.wsPort ?? D.mqtt.wsPort;
 
   // Check if system mosquitto is already running
   if (isMosquittoRunning(mqttPort)) {
@@ -120,8 +120,8 @@ export async function cmdBrokerStatus(): Promise<void> {
   }
 
   const config = loadConfig();
-  const mqttPort = config.mqtt?.port || 1883;
-  const wsPort = config.mqtt?.wsPort || 9883;
+  const mqttPort = config.mqtt?.port ?? D.mqtt.port;
+  const wsPort = config.mqtt?.wsPort ?? D.mqtt.wsPort;
 
   // Check TCP reachability
   for (const [label, port] of [["TCP", mqttPort], ["WS", wsPort]] as const) {

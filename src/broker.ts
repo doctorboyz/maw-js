@@ -11,10 +11,11 @@ import { WebSocketServer } from "ws";
 import { Duplex } from "stream";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { homedir } from "os";
 import { createHmac, timingSafeEqual } from "crypto";
 
 // Read config directly (no maw imports — keeps broker standalone)
-const CONFIG_PATH = join(process.env.HOME || "/home/nat", ".config/maw/maw.config.json");
+const CONFIG_PATH = join(process.env.HOME || homedir(), ".config/maw/maw.config.json");
 interface BrokerConfig {
   mqtt?: { port?: number; wsPort?: number };
   federationToken?: string;
@@ -22,8 +23,8 @@ interface BrokerConfig {
 let config: BrokerConfig = {};
 try { config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8")); } catch {}
 
-const MQTT_PORT = config.mqtt?.port || 1883;
-const WS_PORT = config.mqtt?.wsPort || 9883;
+const MQTT_PORT = config.mqtt?.port ?? 1883;
+const WS_PORT = config.mqtt?.wsPort ?? 9883;
 const TOKEN = config.federationToken || "";
 
 // --- Aedes broker ---

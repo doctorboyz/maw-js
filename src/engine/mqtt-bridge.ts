@@ -13,7 +13,7 @@
 
 import mqtt from "mqtt";
 import type { FeedEvent } from "../lib/feed";
-import { loadConfig } from "../config";
+import { loadConfig, cfgLimit } from "../config";
 import { listSessions, sendKeys, findWindow } from "../ssh";
 
 const BUSY_EVENTS = new Set(["PreToolUse", "PostToolUse", "UserPromptSubmit", "SubagentStart"]);
@@ -27,7 +27,7 @@ export function startMqttBridge(feedListeners: Set<(event: FeedEvent) => void>, 
   const broker = config.mqtt?.broker;
   if (!broker) return;
 
-  const node = config.node || "local";
+  const node = config.node ?? "local";
 
   try {
     client = mqtt.connect(broker, {
@@ -87,10 +87,11 @@ export function startMqttBridge(feedListeners: Set<(event: FeedEvent) => void>, 
 
     // Publish existing feed buffer so retained status is set on startup
     if (feedBuffer?.length) {
-      for (const event of feedBuffer.slice(-50)) {
+      const mqttBuffer = cfgLimit("mqttBuffer");
+      for (const event of feedBuffer.slice(-mqttBuffer)) {
         feedListener(event);
       }
-      console.log(`[mqtt-bridge] published ${Math.min(feedBuffer.length, 50)} buffered events`);
+      console.log(`[mqtt-bridge] published ${Math.min(feedBuffer.length, mqttBuffer)} buffered events`);
     }
 
     // Publish sessions immediately (don't wait for 10s interval)

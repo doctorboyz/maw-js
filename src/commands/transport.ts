@@ -9,7 +9,7 @@ export async function cmdTransportStatus() {
   const config = loadConfig() as any;
   const router = getTransportRouter();
 
-  const node = config.node || config.host || "local";
+  const node = config.node ?? "local";
   console.log(`\n\x1b[36;1mTransport Status\x1b[0m  \x1b[90m(node: ${node})\x1b[0m\n`);
 
   const statuses = router.status();

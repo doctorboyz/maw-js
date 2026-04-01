@@ -1,5 +1,5 @@
 import { listSessions, findWindow, capture, sendKeys, getPaneCommand, getPaneCommands, getPaneInfos, Session } from "../ssh";
-import { loadConfig } from "../config";
+import { loadConfig, cfgLimit } from "../config";
 import { resolveFleetSession } from "./wake";
 import { runHook } from "../hooks";
 import { scanWorktrees } from "../worktrees";
@@ -136,7 +136,7 @@ export async function cmdSend(query: string, message: string, force = false) {
       });
       if (res.ok && res.data?.ok) {
         console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${nodeName} → ${res.data.target || agentName}: ${message}`);
-        if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, 100)}\x1b[0m`);
+        if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
         await runHook("after_send", { to: query, message });
         return;
       }
@@ -172,7 +172,7 @@ export async function cmdSend(query: string, message: string, force = false) {
       lastLine = content.split("\n").filter(l => l.trim()).pop() || "";
     } catch {}
     console.log(`\x1b[32mdelivered\x1b[0m → ${target}: ${message}`);
-    if (lastLine) console.log(`\x1b[90m  ⤷ ${lastLine.slice(0, 100)}\x1b[0m`);
+    if (lastLine) console.log(`\x1b[90m  ⤷ ${lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
     return;
   }
 
@@ -185,7 +185,7 @@ export async function cmdSend(query: string, message: string, force = false) {
     });
     if (res.ok && res.data?.ok) {
       console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${peerUrl} → ${res.data.target || query}: ${message}`);
-      if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, 100)}\x1b[0m`);
+      if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
       await runHook("after_send", { to: query, message });
       return;
     }
@@ -193,9 +193,9 @@ export async function cmdSend(query: string, message: string, force = false) {
 
   // Not found on peers either → check agent registry for remote routing
   const agentNode = config.agents?.[query] || config.agents?.[query.replace(/-oracle$/, "")];
-  if (agentNode && agentNode !== (config.node || "local")) {
+  if (agentNode && agentNode !== (config.node ?? "local")) {
     // Route via federation (same as maw wire but auto-detected)
-    const port = config.port || 3456;
+    const port = loadConfig().port;
     const res = await curlFetch(`http://localhost:${port}/api/send`, {
       method: "POST",
       body: JSON.stringify({ target: query, text: message }),
@@ -203,7 +203,7 @@ export async function cmdSend(query: string, message: string, force = false) {
     if (res.ok && res.data?.ok) {
       const source = res.data.source === "local" ? "local" : `⚡ ${res.data.source}`;
       console.log(`\x1b[32mdelivered\x1b[0m ${source} → ${res.data.target}: ${message}`);
-      if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, 100)}\x1b[0m`);
+      if (res.data.lastLine) console.log(`\x1b[90m  ⤷ ${res.data.lastLine.slice(0, cfgLimit("messageTruncate"))}\x1b[0m`);
       await runHook("after_send", { to: query, message });
       return;
     }
@@ -220,8 +220,7 @@ export async function cmdSend(query: string, message: string, force = false) {
 
 /** maw wire — federation send via local maw server's /api/send (routes to peers) */
 export async function cmdWire(query: string, message: string) {
-  const config = loadConfig();
-  const port = config.port || 3456;
+  const port = loadConfig().port;
 
   const res = await curlFetch(`http://localhost:${port}/api/send`, {
     method: "POST",

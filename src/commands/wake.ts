@@ -1,6 +1,6 @@
 import { ssh } from "../ssh";
 import { tmux } from "../tmux";
-import { loadConfig, buildCommand, getEnvVars } from "../config";
+import { loadConfig, buildCommand, getEnvVars, cfgTimeout } from "../config";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../paths";
@@ -29,7 +29,7 @@ export async function ensureSessionRunning(session: string, excludeNames?: Set<s
 
     if (paneCmd === "zsh" || paneCmd === "bash" || paneCmd === "sh" || paneCmd === "") {
       try {
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, cfgTimeout("wakeRetry")));
         await tmux.sendText(target, buildCommand(win.name));
         console.log(`\x1b[33m↻\x1b[0m retry: ${win.name} (was ${paneCmd || "empty"})`);
         retried++;
@@ -292,7 +292,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
 
     // Verify newly-created windows started Claude (not stuck on zsh)
     // Skip pre-existing windows to avoid injecting into active sessions (#147)
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, cfgTimeout("wakeVerify")));
     const retried = await ensureSessionRunning(session, preExistingWindows);
     if (retried > 0) console.log(`\x1b[33m${retried} window(s) retried.\x1b[0m`);
   }

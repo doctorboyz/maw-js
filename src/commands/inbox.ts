@@ -1,11 +1,13 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
-
-const FALLBACK = "/home/nat/Code/github.com/laris-co/neo-oracle/ψ/inbox";
+import { loadConfig } from "../config";
 
 function resolveInboxDir(): string {
+  const config = loadConfig();
+  if (config.psiPath) return join(config.psiPath, "inbox");
   const local = join(process.cwd(), "ψ", "inbox");
-  return existsSync(local) ? local : FALLBACK;
+  if (existsSync(local)) return local;
+  return join(process.cwd(), "psi", "inbox");
 }
 
 interface InboxItem { type: string; name: string; path: string; mtime: Date; date: string; }

@@ -1,5 +1,5 @@
 import { execSync } from "child_process";
-import { loadConfig } from "../config";
+import { loadConfig, cfgTimeout } from "../config";
 import { curlFetch } from "../curl-fetch";
 
 export async function cmdHealth() {
@@ -7,7 +7,7 @@ export async function cmdHealth() {
 
   // 1. tmux
   try {
-    const sessions = execSync("tmux list-sessions -F '#{session_name}'", { encoding: "utf-8", timeout: 3000 }).trim().split("\n").filter(Boolean);
+    const sessions = execSync("tmux list-sessions -F '#{session_name}'", { encoding: "utf-8", timeout: cfgTimeout("health") }).trim().split("\n").filter(Boolean);
     checks.push({ name: "tmux server", status: "ok", detail: `running (${sessions.length} sessions)` });
   } catch {
     checks.push({ name: "tmux server", status: "fail", detail: "not running" });
@@ -16,8 +16,8 @@ export async function cmdHealth() {
   // 2. maw server
   try {
     const config = loadConfig();
-    const port = config.port || 3456;
-    const res = await fetch(`http://localhost:${port}/api/sessions`, { signal: AbortSignal.timeout(3000) });
+    const port = loadConfig().port;
+    const res = await fetch(`http://localhost:${port}/api/sessions`, { signal: AbortSignal.timeout(cfgTimeout("health")) });
     if (res.ok) {
       const data = await res.json();
       const count = Array.isArray(data) ? data.length : (data.sessions?.length || 0);
@@ -72,7 +72,7 @@ export async function cmdHealth() {
   } else {
     for (const peer of peers) {
       try {
-        const r = await curlFetch(`${peer}/api/federation/status`, { timeout: 3000 });
+        const r = await curlFetch(`${peer}/api/federation/status`, { timeout: cfgTimeout("health") });
         checks.push({ name: `peer ${peer}`, status: r.ok ? "ok" : "warn", detail: r.ok ? "online" : `HTTP ${r.status}` });
       } catch {
         checks.push({ name: `peer ${peer}`, status: "fail", detail: "unreachable" });

@@ -1,4 +1,4 @@
-import { loadConfig } from "./config";
+import { loadConfig, cfgTimeout } from "./config";
 import type { Session } from "./ssh";
 import { curlFetch } from "./curl-fetch";
 
@@ -18,7 +18,7 @@ export interface PeerStatus {
 async function checkPeerReachable(url: string): Promise<{ reachable: boolean; latency: number }> {
   const start = Date.now();
   try {
-    const res = await curlFetch(`${url}/api/sessions`, { timeout: 5000 });
+    const res = await curlFetch(`${url}/api/sessions`, { timeout: cfgTimeout("http") });
     const latency = Date.now() - start;
     return { reachable: res.ok, latency };
   } catch {
@@ -39,7 +39,7 @@ export function getPeers(): string[] {
  */
 async function fetchPeerSessions(url: string): Promise<Session[]> {
   try {
-    const res = await curlFetch(`${url}/api/sessions`, { timeout: 5000 });
+    const res = await curlFetch(`${url}/api/sessions`, { timeout: cfgTimeout("http") });
     if (!res.ok) return [];
     return res.data || [];
   } catch {
@@ -86,7 +86,7 @@ export async function getFederationStatus(): Promise<{
 }> {
   const config = loadConfig();
   const peers = getPeers();
-  const port = config.port || 3456;
+  const port = loadConfig().port;
   const localUrl = `http://localhost:${port}`;
 
   const statuses = await Promise.all(peers.map(async (url) => {
@@ -121,7 +121,7 @@ export async function sendKeysToPeer(peerUrl: string, target: string, text: stri
     const res = await curlFetch(`${peerUrl}/api/send`, {
       method: "POST",
       body: JSON.stringify({ target, text }),
-      timeout: 5000,
+      timeout: cfgTimeout("http"),
     });
     return res.ok;
   } catch {

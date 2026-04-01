@@ -1,4 +1,4 @@
-import { loadConfig } from "../config";
+import { loadConfig, cfgTimeout } from "../config";
 import { curlFetch } from "../curl-fetch";
 
 export async function cmdPing(node?: string) {
@@ -38,7 +38,7 @@ export async function cmdPing(node?: string) {
   const results = await Promise.all(targets.map(async ({ name, url }) => {
     const start = Date.now();
     try {
-      const res = await curlFetch(`${url}/api/auth/status`, { timeout: 5000 });
+      const res = await curlFetch(`${url}/api/auth/status`, { timeout: cfgTimeout("ping") });
       const ms = Date.now() - start;
       if (res.ok) {
         const auth = res.data?.enabled ? "auth: ok" : "auth: off";

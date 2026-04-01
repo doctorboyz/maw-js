@@ -58,7 +58,7 @@ sessionsApi.post("/send", async (c) => {
     const config = loadConfig();
     const targetName = baseName.split(":").pop() || baseName;
     const agentNode = config.agents?.[targetName] || config.agents?.[target];
-    if (agentNode && agentNode !== (config.node || config.host || "local")) {
+    if (agentNode && agentNode !== (config.node ?? "local")) {
       const peer = config.namedPeers?.find(p => p.name === agentNode);
       const peerUrl = peer?.url || config.peers?.find(p => p.includes(agentNode));
       if (peerUrl) {

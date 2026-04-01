@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cfgLimit } from "../config";
 import { homedir } from "os";
 import { join, basename } from "path";
 import { readdirSync, readFileSync, statSync, existsSync } from "fs";
@@ -64,7 +65,7 @@ function countLines(filePath: string): number {
 logsApi.get("/logs", (c) => {
   const q = c.req.query("q") || "";
   const agentFilter = c.req.query("agent") || "";
-  const limit = Math.min(parseInt(c.req.query("limit") || "50", 10) || 50, 500);
+  const limit = Math.min(parseInt(c.req.query("limit") || String(cfgLimit("logsDefault")), 10) || cfgLimit("logsDefault"), cfgLimit("logsMax"));
 
   if (!existsSync(projectsDir)) {
     return c.json({ entries: [], total: 0 });
@@ -124,7 +125,7 @@ logsApi.get("/logs", (c) => {
                       role: "user",
                       content:
                         typeof parsed.message.content === "string"
-                          ? parsed.message.content.slice(0, 500)
+                          ? parsed.message.content.slice(0, cfgLimit("logsTruncate"))
                           : "[structured]",
                     }
                   : parsed.message?.role === "assistant"
@@ -132,7 +133,7 @@ logsApi.get("/logs", (c) => {
                         role: "assistant",
                         content:
                           typeof parsed.message.content === "string"
-                            ? parsed.message.content.slice(0, 500)
+                            ? parsed.message.content.slice(0, cfgLimit("logsTruncate"))
                             : Array.isArray(parsed.message.content)
                               ? "[tool_use/text blocks]"
                               : "[structured]",

@@ -6,6 +6,7 @@
  */
 
 import { sendKeysToPeer, getAggregatedSessions } from "../peers";
+import { cfgTimeout } from "../config";
 import { listSessions, findWindow } from "../ssh";
 import { curlFetch } from "../curl-fetch";
 import type { Transport, TransportTarget, TransportMessage, TransportPresence } from "../transport";
@@ -72,7 +73,7 @@ export class HttpTransport implements Transport {
           await curlFetch(`${url}/api/feed`, {
             method: "POST",
             body: JSON.stringify(event),
-            timeout: 5000,
+            timeout: cfgTimeout("http"),
           });
         } catch {}
       }),

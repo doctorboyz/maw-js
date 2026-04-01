@@ -51,7 +51,7 @@ export async function cmdView(agent: string, windowHint?: string, clean = false)
   }
 
   // Attach interactively
-  const host = process.env.MAW_HOST || loadConfig().host || "white.local";
+  const host = process.env.MAW_HOST || loadConfig().host || "local";
   const isLocal = host === "local" || host === "localhost";
   const socket = resolveSocket();
   const attachArgs = isLocal

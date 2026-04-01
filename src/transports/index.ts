@@ -35,8 +35,8 @@ export function createTransportRouter(): TransportRouter {
         clientId: mqttConfig.clientId,
         username: mqttConfig.username,
         password: mqttConfig.password,
-        selfName: mqttConfig.selfName || config.node || "maw",
-        selfHost: mqttConfig.selfHost || config.node || "local",
+        selfName: mqttConfig.selfName ?? config.node ?? "maw",
+        selfHost: mqttConfig.selfHost ?? config.node ?? "local",
         federationToken: config.federationToken,
       }),
     );
@@ -53,7 +53,7 @@ export function createTransportRouter(): TransportRouter {
     router.register(
       new HttpTransport({
         peers: config.peers,
-        selfHost: config.node || config.host || "local",
+        selfHost: config.node ?? "local",
       }),
     );
   }

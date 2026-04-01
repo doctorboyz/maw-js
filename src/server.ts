@@ -4,7 +4,6 @@ import { MawEngine } from "./engine";
 import type { WSData } from "./types";
 import { loadConfig } from "./config";
 import { existsSync, readFileSync } from "fs";
-import { join } from "path";
 import { api } from "./api";
 import { feedBuffer, feedListeners } from "./api/feed";
 import { mountViews } from "./views/index";
@@ -107,12 +106,11 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
   const server = Bun.serve({ port, fetch: fetchHandler, websocket: wsHandler });
   console.log(`maw ${VERSION} serve → ${HTTP_URL} (${WS_URL})`);
 
-  // HTTPS server (if mkcert certs exist)
-  const certPath = join(import.meta.dir, "../white.local+3.pem");
-  const keyPath = join(import.meta.dir, "../white.local+3-key.pem");
-  if (existsSync(certPath) && existsSync(keyPath)) {
+  // HTTPS server (if TLS configured)
+  const tlsCfg = loadConfig().tls;
+  if (tlsCfg?.cert && tlsCfg?.key && existsSync(tlsCfg.cert) && existsSync(tlsCfg.key)) {
     const tlsPort = port + 1;
-    const tls = { cert: readFileSync(certPath), key: readFileSync(keyPath) };
+    const tls = { cert: readFileSync(tlsCfg.cert), key: readFileSync(tlsCfg.key) };
     Bun.serve({ port: tlsPort, tls, fetch: fetchHandler, websocket: wsHandler });
     console.log(`maw serve → https://localhost:${tlsPort} (wss://localhost:${tlsPort}/ws) [TLS]`);
   }

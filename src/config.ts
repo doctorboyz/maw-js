@@ -25,6 +25,40 @@ export interface PeerConfig {
   url: string;
 }
 
+export interface MawIntervals {
+  capture?: number;
+  sessions?: number;
+  status?: number;
+  teams?: number;
+  preview?: number;
+  peerFetch?: number;
+  crashCheck?: number;
+}
+
+export interface MawTimeouts {
+  http?: number;
+  health?: number;
+  ping?: number;
+  pty?: number;
+  workspace?: number;
+  shellInit?: number;
+  wakeRetry?: number;
+  wakeVerify?: number;
+}
+
+export interface MawLimits {
+  feedMax?: number;
+  feedDefault?: number;
+  feedHistory?: number;
+  logsMax?: number;
+  logsDefault?: number;
+  logsTruncate?: number;
+  messageTruncate?: number;
+  mqttBuffer?: number;
+  ptyCols?: number;
+  ptyRows?: number;
+}
+
 export interface MawConfig {
   host: string;
   port: number;
@@ -46,7 +80,23 @@ export interface MawConfig {
   /** Agent → node mapping (e.g. { "homekeeper": "mba", "neo": "white" }) */
   agents?: Record<string, string>;
   /** MQTT broker config */
-  mqtt?: { broker: string; clientId?: string; username?: string; password?: string; selfName?: string; selfHost?: string };
+  mqtt?: { broker: string; port?: number; wsPort?: number; clientId?: string; username?: string; password?: string; selfName?: string; selfHost?: string };
+  /** Fixed Claude session UUIDs per agent */
+  sessionIds?: Record<string, string>;
+  /** Path to ψ/ directory */
+  psiPath?: string;
+  /** TLS cert/key paths */
+  tls?: { cert: string; key: string };
+  /** Polling intervals (ms) */
+  intervals?: MawIntervals;
+  /** HTTP/operation timeouts (ms) */
+  timeouts?: MawTimeouts;
+  /** Buffer/display limits */
+  limits?: MawLimits;
+  /** HMAC auth window (seconds) */
+  hmacWindowSeconds?: number;
+  /** PIN for web UI */
+  pin?: string;
 }
 
 const DEFAULTS: MawConfig = {
@@ -58,6 +108,35 @@ const DEFAULTS: MawConfig = {
   commands: { default: "claude" },
   sessions: {},
 };
+
+/** Typed defaults for intervals, timeouts, limits (#172) */
+export const D = {
+  intervals: { capture: 50, sessions: 5000, status: 3000, teams: 3000, preview: 2000, peerFetch: 10000, crashCheck: 30000 } as const,
+  timeouts: { http: 5000, health: 3000, ping: 5000, pty: 5000, workspace: 5000, shellInit: 3000, wakeRetry: 500, wakeVerify: 3000 } as const,
+  limits: { feedMax: 500, feedDefault: 50, feedHistory: 50, logsMax: 500, logsDefault: 50, logsTruncate: 500, messageTruncate: 100, mqttBuffer: 50, ptyCols: 500, ptyRows: 200 } as const,
+  mqtt: { port: 1883, wsPort: 9883 } as const,
+  hmacWindowSeconds: 300,
+} as const;
+
+/** Get a config interval with typed default fallback */
+export function cfgInterval(key: keyof typeof D.intervals): number {
+  return loadConfig().intervals?.[key] ?? D.intervals[key];
+}
+
+/** Get a config timeout with typed default fallback */
+export function cfgTimeout(key: keyof typeof D.timeouts): number {
+  return loadConfig().timeouts?.[key] ?? D.timeouts[key];
+}
+
+/** Get a config limit with typed default fallback */
+export function cfgLimit(key: keyof typeof D.limits): number {
+  return loadConfig().limits?.[key] ?? D.limits[key];
+}
+
+/** Get a top-level config value with default fallback */
+export function cfg<K extends keyof MawConfig>(key: K): MawConfig[K] {
+  return loadConfig()[key] ?? (DEFAULTS as MawConfig)[key];
+}
 
 let cached: MawConfig | null = null;
 

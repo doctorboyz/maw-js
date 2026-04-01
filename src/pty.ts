@@ -1,5 +1,5 @@
 import { tmux, tmuxCmd } from "./tmux";
-import { loadConfig } from "./config";
+import { loadConfig, cfgTimeout, cfgLimit } from "./config";
 import type { ServerWebSocket } from "bun";
 
 let nextPtyId = 0;
@@ -76,8 +76,8 @@ async function attach(ws: ServerWebSocket<any>, target: string, cols: number, ro
 
   const sessionName = safe.split(":")[0];
   const windowPart = safe.includes(":") ? safe.split(":").slice(1).join(":") : "";
-  const c = Math.max(1, Math.min(500, Math.floor(cols)));
-  const r = Math.max(1, Math.min(200, Math.floor(rows)));
+  const c = Math.max(1, Math.min(cfgLimit("ptyCols"), Math.floor(cols)));
+  const r = Math.max(1, Math.min(cfgLimit("ptyRows"), Math.floor(rows)));
 
   // Create a grouped session — shares windows but has independent client sizing.
   // This prevents the web terminal from shrinking the real terminal.
@@ -161,7 +161,7 @@ function detach(ws: ServerWebSocket<any>) {
         try { session.proc.kill(); } catch { /* expected: process may already be dead */ }
         tmux.killSession(session.ptySessionName);
         sessions.delete(target);
-      }, 5000);
+      }, cfgTimeout("pty"));
     }
   }
 }

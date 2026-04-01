@@ -1,21 +1,22 @@
 import { Hono } from "hono";
 import type { FeedEvent } from "../lib/feed";
 import { markRealFeedEvent } from "../engine/status";
+import { cfgLimit } from "../config";
 
 export const feedBuffer: FeedEvent[] = [];
-export const FEED_MAX = 500;
 export const feedListeners = new Set<(event: FeedEvent) => void>();
 
 export function pushFeedEvent(event: FeedEvent) {
   feedBuffer.push(event);
-  if (feedBuffer.length > FEED_MAX) feedBuffer.splice(0, feedBuffer.length - FEED_MAX);
+  const feedMax = cfgLimit("feedMax");
+  if (feedBuffer.length > feedMax) feedBuffer.splice(0, feedBuffer.length - feedMax);
   for (const fn of feedListeners) fn(event);
 }
 
 export const feedApi = new Hono();
 
 feedApi.get("/feed", (c) => {
-  const limit = Math.min(200, +(c.req.query("limit") || "50"));
+  const limit = Math.min(200, +(c.req.query("limit") || String(cfgLimit("feedDefault"))));
   const oracle = c.req.query("oracle") || undefined;
   let events = feedBuffer.slice(-limit);
   if (oracle) events = events.filter(e => e.oracle === oracle);

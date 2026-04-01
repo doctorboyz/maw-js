@@ -1,5 +1,6 @@
 import { listSessions, ssh } from "../ssh";
 import { tmux } from "../tmux";
+import { loadConfig } from "../config";
 import type { Session } from "../ssh";
 
 export interface OverviewTarget {
@@ -61,7 +62,7 @@ export function processMirror(raw: string, lines: number): string {
 
 export function mirrorCmd(t: OverviewTarget): string {
   const target = encodeURIComponent(`${t.session}:${t.window}`);
-  const port = process.env.MAW_PORT || "3456";
+  const port = loadConfig().port;
   return `watch --color -t -n0.5 'curl -s "http://localhost:${port}/api/mirror?target=${target}&lines=\\$(tput lines)"'`;
 }
 

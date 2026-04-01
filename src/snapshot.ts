@@ -53,7 +53,7 @@ export async function takeSnapshot(trigger: string): Promise<string> {
   const snapshot: Snapshot = {
     timestamp: new Date().toISOString(),
     trigger,
-    node: config.node || "local",
+    node: config.node ?? "local",
     sessions: sessions.map(s => ({
       name: s.name,
       windows: s.windows.map(w => ({

@@ -31,6 +31,6 @@ federationApi.get("/auth/status", (c) => {
     tokenPreview: token ? token.slice(0, 4) + "****" : null,
     method: token ? "HMAC-SHA256" : "none",
     clockUtc: new Date().toISOString(),
-    node: config.node || "local",
+    node: config.node ?? "local",
   });
 });

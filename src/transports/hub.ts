@@ -74,7 +74,7 @@ export class HubTransport implements Transport {
 
   constructor(nodeId?: string) {
     const config = loadConfig();
-    this.nodeId = nodeId || config.node || "local";
+    this.nodeId = nodeId ?? config.node ?? "local";
     this.federationToken = config.federationToken;
   }
 

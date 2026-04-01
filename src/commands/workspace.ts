@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { loadConfig } from "../config";
+import { loadConfig, cfgTimeout } from "../config";
 import { curlFetch } from "../curl-fetch";
 
 // ── Workspace config directory ──────────────────────────────────────
@@ -94,7 +94,7 @@ export async function cmdWorkspaceCreate(name: string, hubUrl?: string) {
   const config = loadConfig();
   const res = await curlFetch(`${hub}/api/workspace/create`, {
     method: "POST",
-    body: JSON.stringify({ name, nodeId: config.node || config.host || "local" }),
+    body: JSON.stringify({ name, nodeId: config.node ?? "local" }),
   });
 
   if (!res.ok || !res.data?.id) {
@@ -136,7 +136,7 @@ export async function cmdWorkspaceJoin(code: string, hubUrl?: string) {
   const config = loadConfig();
   const res = await curlFetch(`${hub}/api/workspace/join`, {
     method: "POST",
-    body: JSON.stringify({ code, node: config.node || "local" }),
+    body: JSON.stringify({ code, node: config.node ?? "local" }),
   });
 
   if (!res.ok || !res.data?.id) {
@@ -186,7 +186,7 @@ export async function cmdWorkspaceShare(agents: string[], workspaceId?: string) 
   const config = loadConfig();
   const res = await curlFetch(`${ws.hubUrl}/api/workspace/${ws.id}/agents`, {
     method: "POST",
-    body: JSON.stringify({ action: "share", agents, node: config.node || "local" }),
+    body: JSON.stringify({ action: "share", agents, node: config.node ?? "local" }),
   });
 
   if (!res.ok) {
@@ -225,7 +225,7 @@ export async function cmdWorkspaceUnshare(agents: string[], workspaceId?: string
   const config = loadConfig();
   const res = await curlFetch(`${ws.hubUrl}/api/workspace/${ws.id}/agents`, {
     method: "POST",
-    body: JSON.stringify({ action: "unshare", agents, node: config.node || "local" }),
+    body: JSON.stringify({ action: "unshare", agents, node: config.node ?? "local" }),
   });
 
   if (!res.ok) {
@@ -294,7 +294,7 @@ export async function cmdWorkspaceAgents(workspaceId?: string) {
 
   console.log(`\x1b[36mfetching\x1b[0m agents for workspace "${ws.name}"...`);
 
-  const res = await curlFetch(`${ws.hubUrl}/api/workspace/${ws.id}/agents`, { timeout: 5000 });
+  const res = await curlFetch(`${ws.hubUrl}/api/workspace/${ws.id}/agents`, { timeout: cfgTimeout("workspace") });
 
   if (!res.ok) {
     console.error(`\x1b[31m\u274c\x1b[0m failed to fetch agents: ${res.data?.error || `HTTP ${res.status}`}`);
@@ -339,7 +339,7 @@ export async function cmdWorkspaceInvite(workspaceId?: string) {
     process.exit(1);
   }
 
-  const res = await curlFetch(`${ws.hubUrl}/api/workspace/${ws.id}/status`, { timeout: 5000 });
+  const res = await curlFetch(`${ws.hubUrl}/api/workspace/${ws.id}/status`, { timeout: cfgTimeout("workspace") });
 
   if (!res.ok) {
     console.error(`\x1b[31m\u274c\x1b[0m failed to fetch invite info: ${res.data?.error || `HTTP ${res.status}`}`);
@@ -380,7 +380,7 @@ export async function cmdWorkspaceLeave(workspaceId?: string) {
   const config = loadConfig();
   const res = await curlFetch(`${ws.hubUrl}/api/workspace/${ws.id}/leave`, {
     method: "POST",
-    body: JSON.stringify({ node: config.node || "local" }),
+    body: JSON.stringify({ node: config.node ?? "local" }),
   });
 
   if (!res.ok) {
@@ -422,7 +422,7 @@ export async function cmdWorkspaceStatus() {
     workspaces.map(async (ws) => {
       const start = Date.now();
       try {
-        const res = await curlFetch(`${ws.hubUrl}/api/workspace/${ws.id}/status`, { timeout: 5000 });
+        const res = await curlFetch(`${ws.hubUrl}/api/workspace/${ws.id}/status`, { timeout: cfgTimeout("workspace") });
         const ms = Date.now() - start;
         if (res.ok) {
           ws.lastStatus = "connected";
