@@ -5,6 +5,7 @@ import { cmdOverview } from "../commands/overview";
 import { cmdMegaStatus, cmdMegaStop } from "../commands/mega";
 import { cmdFederationStatus } from "../commands/federation";
 import { cmdReunion } from "../commands/reunion";
+import { cmdSoulSync } from "../commands/soul-sync";
 
 export async function routeFleet(cmd: string, args: string[]): Promise<boolean> {
   if (cmd === "fleet") {
@@ -123,6 +124,10 @@ export async function routeFleet(cmd: string, args: string[]): Promise<boolean> 
   }
   if (cmd === "reunion") {
     await cmdReunion(args[1]);
+    return true;
+  }
+  if (cmd === "soul-sync" || cmd === "soulsync" || cmd === "ss") {
+    await cmdSoulSync(args[1]);
     return true;
   }
   return false;

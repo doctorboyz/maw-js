@@ -29,6 +29,8 @@ export function usage() {
   maw done <window> --force   Skip auto-save, kill immediately
   maw done <window> --dry-run Show what would happen
   maw reunion [window]         Sync ψ/memory/ from worktree → main oracle repo
+  maw soul-sync                Sync current oracle ψ/ → parent oracle
+  maw soul-sync <parent>       Pull ψ/ from all children → parent oracle
   maw pulse add "task" [opts] Create issue + wake oracle
   maw pulse cleanup [--dry-run] Clean stale/orphan worktrees
   maw view <agent> [window]   Grouped tmux session (interactive attach)
