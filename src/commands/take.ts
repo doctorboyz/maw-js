@@ -20,14 +20,20 @@ export async function cmdTake(source: string, targetSession?: string) {
     process.exit(1);
   }
 
-  // Resolve target session (default = current tmux session)
+  // Resolve target session
   let target = targetSession;
-  if (!target) {
+  const split = !target; // no target = split into own session
+
+  if (split) {
+    // Create a new session named after the window
+    target = srcWindow;
     try {
-      target = (await hostExec("tmux display-message -p '#{session_name}'")).trim();
-    } catch {
-      console.error("  \x1b[31m✗\x1b[0m could not detect current tmux session");
-      process.exit(1);
+      await hostExec(`tmux new-session -d -s '${target}'`);
+    } catch (e: any) {
+      if (!e.message?.includes("duplicate")) {
+        console.error(`  \x1b[31m✗\x1b[0m could not create session '${target}': ${e.message}`);
+        process.exit(1);
+      }
     }
   }
 
@@ -61,7 +67,11 @@ export async function cmdTake(source: string, targetSession?: string) {
   // Move the window: tmux move-window -s source:window -t target:
   try {
     await hostExec(`tmux move-window -s '${srcSess.name}:${srcWin.name}' -t '${target}:'`);
-    console.log(`  \x1b[32m✓\x1b[0m ${srcSess.name}:${srcWin.name} → ${target}`);
+    // Kill the empty default window from new-session (if split)
+    if (split) {
+      try { await hostExec(`tmux kill-window -t '${target}:1' 2>/dev/null`); } catch {}
+    }
+    console.log(`  \x1b[32m✓\x1b[0m ${srcSess.name}:${srcWin.name} → ${target}${split ? " (new session)" : ""}`);
     if (paneCwd) {
       console.log(`  \x1b[90m  cwd: ${paneCwd}\x1b[0m`);
     }
