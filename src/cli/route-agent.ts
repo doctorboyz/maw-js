@@ -3,6 +3,8 @@ import { cmdWakeAll, cmdSleep } from "../commands/fleet";
 import { cmdDone } from "../commands/done";
 import { cmdSleepOne } from "../commands/sleep";
 import { cmdOracleList, cmdOracleAbout } from "../commands/oracle";
+import { cmdTake } from "../commands/take";
+import { cmdBud } from "../commands/bud";
 
 export async function routeAgent(cmd: string, args: string[]): Promise<boolean> {
   if (cmd === "wake") {
@@ -60,6 +62,24 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
   if (cmd === "about" || cmd === "info") {
     if (!args[1]) { console.error("usage: maw about <oracle>"); process.exit(1); }
     await cmdOracleAbout(args[1]);
+    return true;
+  }
+  if (cmd === "take" || cmd === "handover") {
+    if (!args[1]) { console.error("usage: maw take <session>:<window> [target-session]\n  e.g. maw take neo:neo-skills pulse"); process.exit(1); }
+    await cmdTake(args[1], args[2]);
+    return true;
+  }
+  if (cmd === "bud") {
+    if (!args[1]) { console.error("usage: maw bud <name> [--from <oracle>] [--repo org/repo] [--issue N] [--fast] [--dry-run]"); process.exit(1); }
+    const budOpts: { from?: string; repo?: string; issue?: number; fast?: boolean; dryRun?: boolean } = {};
+    for (let i = 2; i < args.length; i++) {
+      if (args[i] === "--from" && args[i + 1]) budOpts.from = args[++i];
+      else if (args[i] === "--repo" && args[i + 1]) budOpts.repo = args[++i];
+      else if (args[i] === "--issue" && args[i + 1]) budOpts.issue = +args[++i];
+      else if (args[i] === "--fast") budOpts.fast = true;
+      else if (args[i] === "--dry-run") budOpts.dryRun = true;
+    }
+    await cmdBud(args[1], budOpts);
     return true;
   }
   if (cmd === "oracle" || cmd === "oracles") {

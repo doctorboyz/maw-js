@@ -25,6 +25,9 @@ export function usage() {
   maw overview              War-room: all oracles in split panes
   maw overview neo hermes   Only specific oracles
   maw overview --kill       Tear down overview
+  maw bud <name>               Bud new oracle from current (yeast model)
+  maw bud <name> --from <o>   Bud from specific parent oracle
+  maw take <sess>:<win> [tgt] Move tmux window to another session (handover)
   maw done <window>            Auto-save (/rrr + commit + push) then clean up
   maw done <window> --force   Skip auto-save, kill immediately
   maw done <window> --dry-run Show what would happen

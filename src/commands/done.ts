@@ -6,6 +6,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { FLEET_DIR } from "../paths";
 import { cmdReunion } from "./reunion";
+import { cmdSoulSync } from "./soul-sync";
 import { takeSnapshot } from "../snapshot";
 
 export interface DoneOpts {
@@ -107,8 +108,11 @@ export async function cmdDone(windowName_: string, opts: DoneOpts = {}) {
     // Reunion: sync ψ/memory/ from worktree back to main oracle repo
     if (!opts.dryRun) {
       await cmdReunion(windowName);
+      // Soul-sync to configured peers (cell membrane export)
+      try { await cmdSoulSync(undefined, { cwd: paneCwd }); } catch { /* no peers configured */ }
     } else {
       console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would run reunion (sync ψ/memory/ to main oracle)`);
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would soul-sync to configured peers`);
     }
   } else if (opts.dryRun) {
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] window '${windowName}' not running — nothing to auto-save`);
