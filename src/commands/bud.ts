@@ -13,6 +13,7 @@ export interface BudOpts {
   issue?: number;
   fast?: boolean;
   dryRun?: boolean;
+  note?: string;
 }
 
 /**
@@ -139,6 +140,13 @@ Rule 6: Oracle Never Pretends to Be Human
     console.log(`  \x1b[32m✓\x1b[0m fleet config: ${fleetFile}`);
   }
 
+  // 4.5. Write birth note if provided
+  if (opts.note) {
+    writeFileSync(join(psiDir, "memory", "learnings", `${new Date().toISOString().slice(0, 10)}_birth-note.md`),
+      `---\npattern: Birth note from ${parentName}\ndate: ${new Date().toISOString().slice(0, 10)}\nsource: maw bud\n---\n\n# Why ${name} was born\n\n${opts.note}\n\nBudded from: ${parentName}\n`);
+    console.log(`  \x1b[32m✓\x1b[0m birth note written`);
+  }
+
   // 5. Soul-sync seed from parent
   console.log(`  \x1b[36m⏳\x1b[0m soul-sync seed from ${parentName}...`);
   try {
@@ -192,6 +200,20 @@ Rule 6: Oracle Never Pretends to Be Human
   } catch (e: any) {
     console.log(`  \x1b[33m⚠\x1b[0m wake failed: ${e.message || e}`);
     console.log(`  \x1b[90m  try: maw wake ${name}\x1b[0m`);
+  }
+
+  // 8.5. Copy local project ψ/ if --repo was used and it exists
+  if (opts.repo) {
+    const localPsi = join(ghqRoot, "github.com", opts.repo, "ψ", "memory");
+    if (existsSync(localPsi)) {
+      const { syncDir } = await import("./soul-sync");
+      for (const sub of ["learnings", "retrospectives", "traces"]) {
+        const src = join(localPsi, sub);
+        const dst = join(psiDir, "memory", sub);
+        if (existsSync(src)) { try { syncDir(src, dst); } catch {} }
+      }
+      console.log(`  \x1b[32m✓\x1b[0m copied local project ψ/ from ${opts.repo}`);
+    }
   }
 
   // Summary

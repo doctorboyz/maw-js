@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, copyFileSync, mkdirSync } from "fs";
+import { existsSync, readdirSync, copyFileSync, mkdirSync, appendFileSync } from "fs";
 import { join } from "path";
 import { ssh } from "../ssh";
 import { loadConfig } from "../config";
@@ -10,7 +10,7 @@ const SYNC_DIRS = ["memory/learnings", "memory/retrospectives", "memory/traces"]
  * Sync new files from src dir to dst dir (skip existing).
  * Returns count of files copied.
  */
-function syncDir(srcDir: string, dstDir: string): number {
+export function syncDir(srcDir: string, dstDir: string): number {
   if (!existsSync(srcDir)) return 0;
   let count = 0;
 
@@ -98,6 +98,18 @@ function syncOracleVaults(fromPath: string, toPath: string, fromName: string, to
   }
 
   const total = Object.values(synced).reduce((a, b) => a + b, 0);
+
+  // Write sync receipt log
+  if (total > 0) {
+    const logDir = join(toVault, ".soul-sync");
+    try {
+      mkdirSync(logDir, { recursive: true });
+      const ts = new Date().toISOString();
+      const logLine = `${ts} | ${fromName} → ${toName} | ${total} files | ${Object.entries(synced).map(([k, v]) => `${v} ${k.split("/").pop()}`).join(", ")}\n`;
+      appendFileSync(join(logDir, "sync.log"), logLine);
+    } catch { /* non-critical */ }
+  }
+
   return { from: fromName, to: toName, synced, total };
 }
 

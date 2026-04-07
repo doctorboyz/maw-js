@@ -1,6 +1,6 @@
 {
   "name": "maw",
-  "version": "1.7.0",
+  "version": "1.7.2",
   "type": "module",
   "bin": {
     "maw": "./src/cli.ts"

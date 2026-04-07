@@ -71,11 +71,12 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
   }
   if (cmd === "bud") {
     if (!args[1]) { console.error("usage: maw bud <name> [--from <oracle>] [--repo org/repo] [--issue N] [--fast] [--dry-run]"); process.exit(1); }
-    const budOpts: { from?: string; repo?: string; issue?: number; fast?: boolean; dryRun?: boolean } = {};
+    const budOpts: { from?: string; repo?: string; issue?: number; fast?: boolean; dryRun?: boolean; note?: string } = {};
     for (let i = 2; i < args.length; i++) {
       if (args[i] === "--from" && args[i + 1]) budOpts.from = args[++i];
       else if (args[i] === "--repo" && args[i + 1]) budOpts.repo = args[++i];
       else if (args[i] === "--issue" && args[i + 1]) budOpts.issue = +args[++i];
+      else if (args[i] === "--note" && args[i + 1]) budOpts.note = args[++i];
       else if (args[i] === "--fast") budOpts.fast = true;
       else if (args[i] === "--dry-run") budOpts.dryRun = true;
     }
