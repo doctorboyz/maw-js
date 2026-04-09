@@ -98,10 +98,20 @@ export function federationAuth(): MiddlewareHandler {
     // Not a protected path → pass
     if (!isProtected(path, c.req.method)) return next();
 
-    // Check if loopback (local CLI / browser on same machine)
-    const clientIp = c.req.header("x-forwarded-for")?.split(",")[0].trim()
-      || c.req.header("x-real-ip")
-      || (c.env as any)?.server?.requestIP?.(c.req.raw)?.address;
+    // Check if loopback (local CLI / browser on same machine).
+    // SECURITY: only the TCP source address is authoritative — X-Forwarded-For
+    // and X-Real-IP are attacker-controlled headers and MUST NOT influence
+    // auth decisions. See #191 for the empirically-verified RCE vector
+    // (Test 3 on mba: POST /api/send to a non-loopback interface with
+    // `X-Forwarded-For: 127.0.0.1` bypassed HMAC entirely).
+    //
+    // NOTE: this fix closes Path A (header spoof from external IP) and
+    // Path C (forwarder + spoof combo), but DOES NOT close Path B (a local
+    // process — cloudflared, nginx, sidecar — forwarding to localhost makes
+    // the TCP source legitimately 127.0.0.1). The full fix (Option C in #191)
+    // is to remove this bypass entirely and have the local CLI sign all
+    // requests; this lands in a follow-up PR.
+    const clientIp = (c.env as any)?.server?.requestIP?.(c.req.raw)?.address;
 
     if (isLoopback(clientIp)) return next();
 
