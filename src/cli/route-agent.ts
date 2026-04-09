@@ -70,7 +70,7 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
     return true;
   }
   if (cmd === "bud") {
-    if (!args[1]) { console.error("usage: maw bud <name> [--from <oracle>] [--repo org/repo] [--issue N] [--fast] [--dry-run]"); process.exit(1); }
+    if (!args[1] || args[1] === "--help" || args[1] === "-h") { console.error("usage: maw bud <name> [--from <oracle>] [--repo org/repo] [--issue N] [--fast] [--dry-run]"); process.exit(1); }
     const budOpts: { from?: string; repo?: string; issue?: number; fast?: boolean; dryRun?: boolean; note?: string } = {};
     for (let i = 2; i < args.length; i++) {
       if (args[i] === "--from" && args[i + 1]) budOpts.from = args[++i];
