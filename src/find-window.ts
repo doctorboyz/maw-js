@@ -73,6 +73,14 @@ export function findWindow(sessions: Session[], query: string): string | null {
       return `${s.name}:${s.windows[0].name}`;
     }
   }
-  if (query.includes(":")) return query;
+  // If query has ":" and the SESSION part matched a real session but the
+  // WINDOW part didn't → return raw query (user may mean index, e.g. "08-mawjs:1").
+  // If the SESSION part didn't match anything local → return null so cmdSend
+  // falls through to federation routing (node:agent like "oracle-world:mawjs").
+  if (query.includes(":")) {
+    const [sessPart] = query.toLowerCase().split(":", 2);
+    const sessExists = matchSession(sessions, sessPart);
+    return sessExists ? query : null;
+  }
   return null;
 }

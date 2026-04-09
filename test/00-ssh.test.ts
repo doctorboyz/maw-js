@@ -113,11 +113,13 @@ describe("findWindow", () => {
         .toBe("mawjs-view:mawjs-oracle");
     });
 
-    test("falls through to legacy logic when session part doesn't match", () => {
-      // 'nosession:foo' → matchSession returns null → fall through →
-      // legacy step 3 returns query as-is (preserves old behavior).
+    test("returns null when session part doesn't match (enables federation fallback)", () => {
+      // 'nosession:foo' → matchSession returns null → no local session →
+      // return null so cmdSend falls through to node-prefix federation routing.
+      // This is the fix for #176/#177 — "oracle-world:mawjs" was being returned
+      // as a local target, bypassing federation.
       expect(findWindow(MAW_SESSIONS, "nosession:foo"))
-        .toBe("nosession:foo");
+        .toBeNull();
     });
 
     test("falls through when session matches but window part doesn't", () => {
