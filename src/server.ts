@@ -83,10 +83,9 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
   } catch {}
 
   // Telegram bridge — grammy bot for human↔oracle messaging
-  try {
-    const { startTelegramBridge } = require("./bridges/telegram");
-    startTelegramBridge();
-  } catch {}
+  import("./bridges/telegram")
+    .then(({ startTelegramBridge }) => startTelegramBridge())
+    .catch(() => {});
 
 
   const wsHandler = {
