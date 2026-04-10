@@ -116,9 +116,9 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
     // Plugin debug API
     app.get("/api/plugins", (c: any) => c.json(plugins.stats()));
 
-    // Plugin debug page (static file via serveStatic)
-    const { serveStatic } = require("hono/bun");
-    app.get("/plugins", serveStatic({ root: `${require("./paths").MAW_ROOT}/public`, path: "/plugins.html" }));
+    // Plugin debug page (Hono JSX)
+    const { pluginsView } = require("./views/plugins");
+    app.route("/plugins", pluginsView(plugins));
   } catch (err) {
     console.error("[plugins] failed to init:", err);
   }
