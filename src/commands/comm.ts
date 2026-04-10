@@ -152,6 +152,17 @@ export async function cmdPeek(query?: string) {
   console.log(content);
 }
 
+/** Resolve the current oracle name from CLAUDE_AGENT_NAME or tmux session */
+function resolveMyName(config: ReturnType<typeof loadConfig>): string {
+  if (process.env.CLAUDE_AGENT_NAME) return process.env.CLAUDE_AGENT_NAME;
+  // Try tmux session name: "08-mawjs" → "mawjs"
+  try {
+    const tmuxSession = require("child_process").execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8" }).trim();
+    if (tmuxSession) return tmuxSession.replace(/^\d+-/, "");
+  } catch {}
+  return config.node || "cli";
+}
+
 export async function cmdSend(query: string, message: string, force = false) {
   const config = loadConfig();
   const sessions = await listSessions();
@@ -174,7 +185,7 @@ export async function cmdSend(query: string, message: string, force = false) {
     await sendKeys(target, message);
     await runHook("after_send", { to: query, message });
     if (!config.node) throw new Error("config.node is required — set 'node' in maw.config.json");
-    const senderName = process.env.CLAUDE_AGENT_NAME || config.node;
+    const senderName = resolveMyName(config);
     logMessage(senderName, query, message, "local");
     emitFeed("MessageSend", senderName, config.node, `${query}: ${message.slice(0, 200)}`, config.port || 3456);
     await Bun.sleep(150);
@@ -192,7 +203,7 @@ export async function cmdSend(query: string, message: string, force = false) {
       body: JSON.stringify({ target: result.target, text: message }),
     });
     if (res.ok && res.data?.ok) {
-      const agentName = process.env.CLAUDE_AGENT_NAME || config.node;
+      const agentName = resolveMyName(config);
       logMessage(agentName, query, message, `peer:${result.node}`);
       emitFeed("MessageSend", agentName, config.node!, `${result.node}:${query}: ${message.slice(0, 200)}`, config.port || 3456);
       console.log(`\x1b[32mdelivered\x1b[0m ⚡ ${result.node} → ${res.data.target || result.target}: ${message}`);
