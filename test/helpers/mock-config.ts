@@ -19,14 +19,13 @@ const TIMEOUTS: Record<keyof MawTimeouts, number> = {
 const LIMITS: Record<keyof MawLimits, number> = {
   feedMax: 500, feedDefault: 50, feedHistory: 50,
   logsMax: 500, logsDefault: 50, logsTruncate: 500,
-  messageTruncate: 100, mqttBuffer: 50, ptyCols: 500, ptyRows: 200,
+  messageTruncate: 100, ptyCols: 500, ptyRows: 200,
 };
 
 export const TEST_D = {
   intervals: INTERVALS,
   timeouts: TIMEOUTS,
   limits: LIMITS,
-  mqtt: { port: 1883, wsPort: 9883 } as const,
   hmacWindowSeconds: 300,
 } as const;
 

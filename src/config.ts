@@ -59,7 +59,6 @@ export interface MawLimits {
   logsDefault?: number;
   logsTruncate?: number;
   messageTruncate?: number;
-  mqttBuffer?: number;
   ptyCols?: number;
   ptyRows?: number;
 }
@@ -84,8 +83,6 @@ export interface MawConfig {
   namedPeers?: PeerConfig[];
   /** Agent → node mapping (e.g. { "homekeeper": "mba", "neo": "white" }) */
   agents?: Record<string, string>;
-  /** MQTT broker config */
-  mqtt?: { broker: string; port?: number; wsPort?: number; clientId?: string; username?: string; password?: string; selfName?: string; selfHost?: string };
   /** Fixed Claude session UUIDs per agent */
   sessionIds?: Record<string, string>;
   /** Path to ψ/ directory */
@@ -118,8 +115,7 @@ const DEFAULTS: MawConfig = {
 export const D = {
   intervals: { capture: 50, sessions: 5000, status: 3000, teams: 3000, preview: 2000, peerFetch: 10000, crashCheck: 30000 } as const,
   timeouts: { http: 5000, health: 3000, ping: 5000, pty: 5000, workspace: 5000, shellInit: 3000, wakeRetry: 500, wakeVerify: 3000 } as const,
-  limits: { feedMax: 500, feedDefault: 50, feedHistory: 50, logsMax: 500, logsDefault: 50, logsTruncate: 500, messageTruncate: 100, mqttBuffer: 50, ptyCols: 500, ptyRows: 200 } as const,
-  mqtt: { port: 1883, wsPort: 9883 } as const,
+  limits: { feedMax: 500, feedDefault: 50, feedHistory: 50, logsMax: 500, logsDefault: 50, logsTruncate: 500, messageTruncate: 100, ptyCols: 500, ptyRows: 200 } as const,
   hmacWindowSeconds: 300,
 } as const;
 
@@ -299,15 +295,6 @@ function validateConfig(raw: Record<string, unknown>): Partial<MawConfig> {
       result.agents = raw.agents;
     } else {
       warn("agents", "must be an object mapping agent names to node names");
-    }
-  }
-
-  // mqtt: object with broker URL
-  if ("mqtt" in raw) {
-    if (raw.mqtt && typeof raw.mqtt === "object" && !Array.isArray(raw.mqtt)) {
-      result.mqtt = raw.mqtt;
-    } else {
-      warn("mqtt", "must be an object with broker URL");
     }
   }
 

@@ -76,12 +76,6 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
   // Hook workflow triggers into feed events
   setupTriggerListener(feedListeners);
 
-  // MQTT bridge — publish feed events to MQTT topics (if broker configured)
-  try {
-    const { startMqttBridge } = require("./engine/mqtt-bridge");
-    startMqttBridge(feedListeners, feedBuffer);
-  } catch {}
-
 
   const wsHandler = {
     open: (ws: any) => {

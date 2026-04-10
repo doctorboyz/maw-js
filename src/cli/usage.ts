@@ -78,7 +78,7 @@ export function usage() {
   maw pr [window]             Create PR from current branch (links issue if branch has issue-N)
   maw triggers                List configured workflow triggers
   maw ping [node]             Check peer connectivity (all or specific)
-  maw transport status        Transport layer connectivity (tmux/MQTT/HTTP)
+  maw transport status        Transport layer connectivity (tmux/HTTP)
   maw avengers status         ARRA-01 rate limit monitor (all accounts)
   maw avengers best           Account with most capacity
   maw avengers traffic        Traffic stats across accounts
@@ -93,10 +93,6 @@ export function usage() {
   maw workspace status        Connection status to hub(s)
   maw ws ...                  Alias for workspace
   maw serve [port]            Start API server (default: 3456)
-  maw serve [port] --mqtt     Start API server + MQTT broker
-  maw broker start            Start MQTT broker (prefers mosquitto, fallback aedes)
-  maw broker stop             Stop the broker
-  maw broker status           Broker status + connections
 
 \x1b[33mWake modes:\x1b[0m
   maw wake neo                Wake main repo
