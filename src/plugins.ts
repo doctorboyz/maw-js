@@ -1,24 +1,36 @@
 /**
- * Plugin System — Drupal-style named hooks, Fastify-style registration.
+ * Plugin System v2 — 4-phase lifecycle hooks.
+ *
+ * Inspired by cmmakerclub/MQTT-Connector (Nat's Arduino lib, 2016):
+ *   - Hook signature IS the permission (pointer=modify, value=read, bool*=cancel)
+ *   - Lifecycle sequence: GATE → FILTER → HANDLE → LATE
  *
  * Plugin authors write:
  *   export default function(hooks) {
- *     hooks.on("SessionStart", (event) => { ... });
+ *     hooks.gate("PreToolUse", (event) => event.oracle !== "blocked"); // cancel
+ *     hooks.filter("*", (event) => ({ ...event, message: redact(event.message) })); // modify
+ *     hooks.on("SessionStart", (event) => console.log(event)); // observe
+ *     hooks.late("*", (event) => auditLog(event)); // guaranteed cleanup
  *   }
- *
- * Plugins load from ~/.oracle/plugins/*.ts (file = plugin, convention over config).
- * All plugins share the same hooks — like Drupal's hook_invoke_all.
  */
 
 import type { FeedEvent, FeedEventType } from "./lib/feed";
 
-type Handler = (event: FeedEvent) => void | Promise<void>;
+type Gate = (event: Readonly<FeedEvent>) => boolean;
 type Filter = (event: FeedEvent) => FeedEvent;
+type Handler = (event: Readonly<FeedEvent>) => void | Promise<void>;
+type Late = (event: Readonly<FeedEvent>) => void;
 export type MawPlugin = (hooks: MawHooks) => void | (() => void);
 
 export interface MawHooks {
-  on(event: FeedEventType | "*", fn: Handler): void;
+  /** Phase 0: GATE — return false to cancel the entire pipeline */
+  gate(event: FeedEventType | "*", fn: Gate): void;
+  /** Phase 1: FILTER — modify event before handlers see it (Drupal hook_alter) */
   filter(event: FeedEventType | "*", fn: Filter): void;
+  /** Phase 2: HANDLE — observe/react to event (read-only) */
+  on(event: FeedEventType | "*", fn: Handler): void;
+  /** Phase 3: LATE — guaranteed cleanup, runs even if handlers error */
+  late(event: FeedEventType | "*", fn: Late): void;
 }
 
 export interface PluginInfo {
@@ -32,31 +44,53 @@ export interface PluginInfo {
 }
 
 export class PluginSystem {
-  private handlers = new Map<string, Handler[]>();
+  private gates = new Map<string, Gate[]>();
   private filters = new Map<string, Filter[]>();
+  private handlers = new Map<string, Handler[]>();
+  private lates = new Map<string, Late[]>();
   private teardowns: Array<() => void> = [];
   private _plugins: PluginInfo[] = [];
   private _totalEvents = 0;
   private _totalErrors = 0;
+  private _gated = 0;
   private _startedAt = new Date().toISOString();
 
+  private _addTo<T>(map: Map<string, T[]>, event: string, fn: T) {
+    const list = map.get(event);
+    if (list) list.push(fn);
+    else map.set(event, [fn]);
+  }
+
   readonly hooks: MawHooks = {
-    on: (event, fn) => {
-      const list = this.handlers.get(event);
-      if (list) list.push(fn);
-      else this.handlers.set(event, [fn]);
-    },
-    filter: (event, fn) => {
-      const list = this.filters.get(event);
-      if (list) list.push(fn);
-      else this.filters.set(event, [fn]);
-    },
+    gate: (event, fn) => this._addTo(this.gates, event, fn),
+    filter: (event, fn) => this._addTo(this.filters, event, fn),
+    on: (event, fn) => this._addTo(this.handlers, event, fn),
+    late: (event, fn) => this._addTo(this.lates, event, fn),
   };
 
-  async emit(event: FeedEvent) {
+  /**
+   * Emit event through the 4-phase pipeline.
+   * Returns true if event was processed, false if gated (cancelled).
+   */
+  async emit(event: FeedEvent): Promise<boolean> {
     this._totalEvents++;
 
-    // Phase 1: FILTER — modify event before handlers (Drupal hook_alter)
+    // Phase 0: GATE — any gate returning false cancels the pipeline
+    const frozen = Object.freeze({ ...event });
+    for (const fn of this.gates.get(event.event) ?? []) {
+      try { if (fn(frozen) === false) { this._gated++; return false; } } catch (err) {
+        this._totalErrors++;
+        console.error(`[plugin:gate] ${event.event}:`, (err as Error).message);
+      }
+    }
+    for (const fn of this.gates.get("*") ?? []) {
+      try { if (fn(frozen) === false) { this._gated++; return false; } } catch (err) {
+        this._totalErrors++;
+        console.error(`[plugin:gate] *:`, (err as Error).message);
+      }
+    }
+
+    // Phase 1: FILTER — modify event (mutable)
     for (const fn of this.filters.get(event.event) ?? []) {
       try { event = fn(event); } catch (err) {
         this._totalErrors++;
@@ -70,17 +104,32 @@ export class PluginSystem {
       }
     }
 
-    // Phase 2: HANDLE — observe/act on (filtered) event
+    // Phase 2: HANDLE — observe (read-only)
+    const readOnly = Object.freeze({ ...event });
     for (const fn of this.handlers.get(event.event) ?? []) {
-      try { await fn(event); } catch (err) {
+      try { await fn(readOnly); } catch (err) {
         this._totalErrors++;
         console.error(`[plugin] ${event.event}:`, (err as Error).message);
       }
     }
     for (const fn of this.handlers.get("*") ?? []) {
-      try { await fn(event); } catch (err) {
+      try { await fn(readOnly); } catch (err) {
         this._totalErrors++;
         console.error(`[plugin] *:`, (err as Error).message);
+      }
+    }
+
+    // Phase 3: LATE — guaranteed cleanup (runs even if HANDLE threw)
+    for (const fn of this.lates.get(event.event) ?? []) {
+      try { fn(readOnly); } catch (err) {
+        this._totalErrors++;
+        console.error(`[plugin:late] ${event.event}:`, (err as Error).message);
+      }
+    }
+    for (const fn of this.lates.get("*") ?? []) {
+      try { fn(readOnly); } catch (err) {
+        this._totalErrors++;
+        console.error(`[plugin:late] *:`, (err as Error).message);
       }
     }
 
@@ -89,6 +138,8 @@ export class PluginSystem {
       p.events = this._totalEvents;
       p.lastEvent = event.event;
     }
+
+    return true;
   }
 
   load(plugin: MawPlugin) {
@@ -106,8 +157,11 @@ export class PluginSystem {
       plugins: this._plugins,
       totalEvents: this._totalEvents,
       totalErrors: this._totalErrors,
-      handlers: Object.fromEntries([...this.handlers].map(([k, v]) => [k, v.length])),
+      gated: this._gated,
+      gates: Object.fromEntries([...this.gates].map(([k, v]) => [k, v.length])),
       filters: Object.fromEntries([...this.filters].map(([k, v]) => [k, v.length])),
+      handlers: Object.fromEntries([...this.handlers].map(([k, v]) => [k, v.length])),
+      lates: Object.fromEntries([...this.lates].map(([k, v]) => [k, v.length])),
     };
   }
 

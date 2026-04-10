@@ -19,12 +19,13 @@ export function pluginsView(plugins: PluginSystem) {
           <style>{css}</style>
         </head>
         <body>
-          <h1>🔌 Plugin System</h1>
+          <h1>🔌 Plugin System v2</h1>
 
           <div class="stats">
             <div class="stat"><div class="n">{s.plugins.length}</div><div class="l">Plugins</div></div>
             <div class="stat"><div class="n pulse">{s.totalEvents}</div><div class="l">Events</div></div>
             <div class="stat"><div class={s.totalErrors > 0 ? "n err" : "n ok"}>{s.totalErrors}</div><div class="l">Errors</div></div>
+            <div class="stat"><div class={(s as any).gated > 0 ? "n err" : "n ok"}>{(s as any).gated || 0}</div><div class="l">Gated</div></div>
             <div class="stat"><div class="n">{upStr}</div><div class="l">Uptime</div></div>
           </div>
 
@@ -42,27 +43,21 @@ export function pluginsView(plugins: PluginSystem) {
             ))}
           </table>
 
-          {Object.keys(s.handlers).length > 0 && (
+          {[
+            { label: "Gates (Phase 0)", data: (s as any).gates || {} },
+            { label: "Filters (Phase 1)", data: s.filters || {} },
+            { label: "Handlers (Phase 2)", data: s.handlers || {} },
+            { label: "Lates (Phase 3)", data: (s as any).lates || {} },
+          ].filter(p => Object.keys(p.data).length > 0).map(phase => (
             <div class="hook">
-              <h3>Handlers</h3>
+              <h3>{phase.label}</h3>
               <div class="hook-list">
-                {Object.entries(s.handlers).map(([k, v]) => (
-                  <div class="hook-item">{k}<span class="count">&times;{v}</span></div>
+                {Object.entries(phase.data).map(([k, v]) => (
+                  <div class="hook-item">{k}<span class="count">&times;{v as number}</span></div>
                 ))}
               </div>
             </div>
-          )}
-
-          {Object.keys(s.filters).length > 0 && (
-            <div class="hook">
-              <h3>Filters</h3>
-              <div class="hook-list">
-                {Object.entries(s.filters).map(([k, v]) => (
-                  <div class="hook-item">{k}<span class="count">&times;{v}</span></div>
-                ))}
-              </div>
-            </div>
-          )}
+          ))}
 
           <script>{`setInterval(()=>location.reload(),5000)`}</script>
         </body>

@@ -155,4 +155,144 @@ describe("PluginSystem", () => {
     await loadPlugins(sys, "/nonexistent/path");
     // Should not throw
   });
+
+  // ─── Hooks v2: Gate + Late ───
+
+  test("gate returning false cancels the pipeline", async () => {
+    const sys = new PluginSystem();
+    const received: string[] = [];
+
+    sys.load((hooks) => {
+      hooks.gate("SessionStart", () => false); // CANCEL
+    });
+    sys.load((hooks) => {
+      hooks.on("SessionStart", (e) => received.push(e.oracle));
+    });
+
+    const result = await sys.emit(mockEvent);
+    expect(result).toBe(false);
+    expect(received).toHaveLength(0); // handler never ran
+  });
+
+  test("gate returning true allows pipeline to continue", async () => {
+    const sys = new PluginSystem();
+    const received: string[] = [];
+
+    sys.load((hooks) => {
+      hooks.gate("SessionStart", () => true); // ALLOW
+    });
+    sys.load((hooks) => {
+      hooks.on("SessionStart", (e) => received.push(e.oracle));
+    });
+
+    const result = await sys.emit(mockEvent);
+    expect(result).toBe(true);
+    expect(received).toEqual(["neo"]);
+  });
+
+  test("wildcard gate cancels all events", async () => {
+    const sys = new PluginSystem();
+    const received: string[] = [];
+
+    sys.load((hooks) => {
+      hooks.gate("*", () => false); // CANCEL ALL
+    });
+    sys.load((hooks) => {
+      hooks.on("*", (e) => received.push(e.event));
+    });
+
+    await sys.emit(mockEvent);
+    await sys.emit({ ...mockEvent, event: "Notification" });
+    expect(received).toHaveLength(0);
+  });
+
+  test("gate error does not cancel pipeline", async () => {
+    const sys = new PluginSystem();
+    const received: string[] = [];
+
+    sys.load((hooks) => {
+      hooks.gate("SessionStart", () => { throw new Error("gate boom"); });
+    });
+    sys.load((hooks) => {
+      hooks.on("SessionStart", (e) => received.push(e.oracle));
+    });
+
+    const result = await sys.emit(mockEvent);
+    expect(result).toBe(true);
+    expect(received).toEqual(["neo"]);
+  });
+
+  test("late runs even when handler throws", async () => {
+    const sys = new PluginSystem();
+    const lateRan: boolean[] = [];
+
+    sys.load((hooks) => {
+      hooks.on("SessionStart", () => { throw new Error("handler boom"); });
+    });
+    sys.load((hooks) => {
+      hooks.late("SessionStart", () => { lateRan.push(true); });
+    });
+
+    await sys.emit(mockEvent);
+    expect(lateRan).toHaveLength(1); // late ran despite handler error
+  });
+
+  test("late wildcard runs for all events", async () => {
+    const sys = new PluginSystem();
+    const lateEvents: string[] = [];
+
+    sys.load((hooks) => {
+      hooks.late("*", (e) => lateEvents.push(e.event));
+    });
+
+    await sys.emit(mockEvent);
+    await sys.emit({ ...mockEvent, event: "Notification" });
+    expect(lateEvents).toEqual(["SessionStart", "Notification"]);
+  });
+
+  test("full 4-phase pipeline executes in order", async () => {
+    const sys = new PluginSystem();
+    const order: string[] = [];
+
+    sys.load((hooks) => {
+      hooks.gate("SessionStart", () => { order.push("gate"); return true; });
+      hooks.filter("SessionStart", (e) => { order.push("filter"); return e; });
+      hooks.on("SessionStart", () => { order.push("handle"); });
+      hooks.late("SessionStart", () => { order.push("late"); });
+    });
+
+    await sys.emit(mockEvent);
+    expect(order).toEqual(["gate", "filter", "handle", "late"]);
+  });
+
+  test("emit returns boolean (gated vs processed)", async () => {
+    const sys = new PluginSystem();
+
+    const r1 = await sys.emit(mockEvent);
+    expect(r1).toBe(true); // no gates = processed
+
+    sys.load((hooks) => {
+      hooks.gate("SessionStart", () => false);
+    });
+
+    const r2 = await sys.emit(mockEvent);
+    expect(r2).toBe(false); // gated
+  });
+
+  test("stats includes gate and late counts", () => {
+    const sys = new PluginSystem();
+
+    sys.load((hooks) => {
+      hooks.gate("SessionStart", () => true);
+      hooks.filter("*", (e) => e);
+      hooks.on("*", () => {});
+      hooks.late("*", () => {});
+    });
+
+    const s = sys.stats();
+    expect(s.gates).toEqual({ SessionStart: 1 });
+    expect(s.filters).toEqual({ "*": 1 });
+    expect(s.handlers).toEqual({ "*": 1 });
+    expect(s.lates).toEqual({ "*": 1 });
+  });
 });
