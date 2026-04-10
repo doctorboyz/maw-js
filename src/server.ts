@@ -58,7 +58,7 @@ export { app };
 
 // --- Server ---
 
-export function startServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456)) {
+export async function startServer(port = +(process.env.MAW_PORT || loadConfig().port || 3456)) {
   const engine = new MawEngine({ feedBuffer, feedListeners });
 
   const HTTP_URL = `http://localhost:${port}`;
@@ -76,48 +76,25 @@ export function startServer(port = +(process.env.MAW_PORT || loadConfig().port |
   // Hook workflow triggers into feed events
   setupTriggerListener(feedListeners);
 
-  // MQTT publish — broadcast feed events to configurable broker (subscribe via CF Worker bridge)
-  try {
-    const { mqttPublish } = require("./mqtt-publish");
-    const node = loadConfig().node;
-    if (!node) throw new Error("config.node is required for MQTT publish");
-    feedListeners.add((event) => {
-      const oracle = event.oracle;
-      mqttPublish(`maw/v1/oracle/${oracle}/feed`, event);
-      mqttPublish(`maw/v1/node/${node}/feed`, event);
-    });
-  } catch {}
-
-  // Shell hooks — fire configured ~/.oracle/maw.hooks.json scripts on feed events
-  try {
-    const { runHook } = require("./hooks");
-    feedListeners.add((event) => {
-      runHook(event.event, {
-        from: event.oracle,
-        to: event.oracle,
-        message: event.message,
-        channel: "feed",
-      }).catch((err: Error) => {
-        console.error("[hooks]", event.event, err.message);
-      });
-    });
-  } catch (err) {
-    console.error("[hooks] failed to load:", err);
-  }
-
-  // Plugin system — load user plugins from ~/.oracle/plugins/
+  // Plugin system — built-in + user plugins
   try {
     const { PluginSystem, loadPlugins } = require("./plugins");
     const { homedir } = require("os");
-    const { join } = require("path");
+    const { join, resolve, dirname } = require("path");
     const plugins = new PluginSystem();
-    loadPlugins(plugins, join(homedir(), ".oracle", "plugins"));
+
+    // Built-in plugins (ship with maw-js)
+    const builtinDir = resolve(dirname(new URL(import.meta.url).pathname), "plugins", "builtin");
+    await loadPlugins(plugins, builtinDir, "builtin");
+
+    // User plugins (file-drop: ~/.oracle/plugins/)
+    await loadPlugins(plugins, join(homedir(), ".oracle", "plugins"), "user");
+
+    // Single feedListener wires everything through the plugin pipeline
     feedListeners.add((event) => plugins.emit(event));
 
-    // Plugin debug API
+    // Plugin debug API + page
     app.get("/api/plugins", (c) => c.json(plugins.stats()));
-
-    // Plugin debug page (Hono JSX)
     const { pluginsView } = require("./views/plugins");
     app.route("/plugins", pluginsView(plugins));
   } catch (err) {

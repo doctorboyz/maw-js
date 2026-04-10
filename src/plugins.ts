@@ -36,6 +36,7 @@ export interface MawHooks {
 export interface PluginInfo {
   name: string;
   type: "ts" | "js" | "wasm-shared" | "wasm-wasi" | "unknown";
+  source: "builtin" | "user";
   loadedAt: string;
   events: number;
   errors: number;
@@ -147,8 +148,8 @@ export class PluginSystem {
     if (typeof teardown === "function") this.teardowns.push(teardown);
   }
 
-  register(name: string, type: PluginInfo["type"]) {
-    this._plugins.push({ name, type, loadedAt: new Date().toISOString(), events: 0, errors: 0 });
+  register(name: string, type: PluginInfo["type"], source: PluginInfo["source"] = "user") {
+    this._plugins.push({ name, type, source, loadedAt: new Date().toISOString(), events: 0, errors: 0 });
   }
 
   stats() {
@@ -179,7 +180,7 @@ export class PluginSystem {
  *   - OR: module exports `on_event` string array for filtering
  *   - Fallback: if module exports `_start` (WASI), run as subprocess per event
  */
-async function loadWasmPlugin(system: PluginSystem, path: string, filename: string) {
+async function loadWasmPlugin(system: PluginSystem, path: string, filename: string, source: PluginInfo["source"] = "user") {
   const { readFileSync } = require("fs");
   const wasmBytes = readFileSync(path);
   const mod = new WebAssembly.Module(wasmBytes);
@@ -201,7 +202,7 @@ async function loadWasmPlugin(system: PluginSystem, path: string, filename: stri
         handle(0, json.length);
       });
     });
-    system.register(filename, "wasm-shared");
+    system.register(filename, "wasm-shared", source);
     console.log(`[plugin] loaded wasm: ${filename} (shared memory)`);
     return;
   }
@@ -240,7 +241,7 @@ async function loadWasmPlugin(system: PluginSystem, path: string, filename: stri
         } catch {}
       });
     });
-    system.register(filename, "wasm-wasi");
+    system.register(filename, "wasm-wasi", source);
     console.log(`[plugin] loaded wasm: ${filename} (WASI)`);
     return;
   }
@@ -256,7 +257,7 @@ async function loadWasmPlugin(system: PluginSystem, path: string, filename: stri
  *   .ts / .js  — TypeScript/JavaScript: export default function(hooks) { ... }
  *   .wasm      — WebAssembly: export handle(ptr, len) + memory, or WASI _start
  */
-export async function loadPlugins(system: PluginSystem, dir: string) {
+export async function loadPlugins(system: PluginSystem, dir: string, source: PluginInfo["source"] = "user") {
   const { readdirSync } = require("fs");
   const { join } = require("path");
   let files: string[];
@@ -271,14 +272,14 @@ export async function loadPlugins(system: PluginSystem, dir: string) {
     const path = join(dir, file);
     try {
       if (file.endsWith(".wasm")) {
-        await loadWasmPlugin(system, path, file);
+        await loadWasmPlugin(system, path, file, source);
       } else {
         const mod = await import(path);
         const plugin = mod.default ?? mod;
         if (typeof plugin === "function") {
           system.load(plugin);
-          system.register(file, file.endsWith(".ts") ? "ts" : "js");
-          console.log(`[plugin] loaded: ${file}`);
+          system.register(file, file.endsWith(".ts") ? "ts" : "js", source);
+          console.log(`[plugin] loaded: ${file} (${source})`);
         }
       }
     } catch (err) {
