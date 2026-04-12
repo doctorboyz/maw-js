@@ -217,3 +217,19 @@ export function parseWakeTarget(target: string): ParsedWakeTarget | null {
   // Plain oracle name — let existing resolution handle it
   return null;
 }
+
+/**
+ * Ensure a repo is cloned via ghq. Checks locally first (fast),
+ * clones from GitHub only if not found. Silent on failure — lets
+ * resolveOracle handle the error downstream.
+ */
+export async function ensureCloned(slug: string): Promise<void> {
+  const ghqHit = await hostExec(`ghq list --full-path | grep -i '/${slug}$' | head -1`).catch(() => "");
+  if (ghqHit.trim()) return;
+  console.log(`\x1b[36m⚡\x1b[0m cloning ${slug}...`);
+  try {
+    await hostExec(`ghq get -p github.com/${slug}`);
+  } catch (e: any) {
+    console.log(`\x1b[33m⚠\x1b[0m clone failed: ${e.message || e}\n  falling back to normal resolution`);
+  }
+}

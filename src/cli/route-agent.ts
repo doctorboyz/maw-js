@@ -1,5 +1,5 @@
 import { cmdWake, fetchIssuePrompt } from "../commands/wake";
-import { parseWakeTarget } from "../commands/wake-resolve";
+import { parseWakeTarget, ensureCloned } from "../commands/wake-resolve";
 import { cmdWakeAll, cmdSleep } from "../commands/fleet";
 import { cmdDone } from "../commands/done";
 import { cmdSleepOne } from "../commands/sleep";
@@ -16,12 +16,12 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
       const wakeOpts: { task?: string; newWt?: string; prompt?: string; incubate?: string; fresh?: boolean; noAttach?: boolean; listWt?: boolean } = {};
       let issueNum: number | null = null;
       let repo: string | undefined;
-      // Detect URL or org/repo slug → auto-incubate
+      // Detect URL or org/repo slug → clone via ghq, then let resolveOracle find it
       const parsed = parseWakeTarget(args[1]);
       const oracleName = parsed ? parsed.oracle : args[1];
       if (parsed) {
-        wakeOpts.incubate = parsed.slug;
-        if (parsed.issueNum) { issueNum = parsed.issueNum; }
+        await ensureCloned(parsed.slug);
+        if (parsed.issueNum) { issueNum = parsed.issueNum; repo = parsed.slug; }
       }
       for (let i = 2; i < args.length; i++) {
         if (args[i] === "--new" && args[i + 1]) { wakeOpts.newWt = args[++i]; }

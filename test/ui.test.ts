@@ -161,7 +161,8 @@ describe("parseUiArgs", () => {
 describe("renderUiOutput — bare mode", () => {
   test("no args → just the local URL on one line", () => {
     const out = renderUiOutput({});
-    expect(out).toBe("http://localhost:5173/federation_2d.html");
+    // Port depends on Shape A: 3456 if ~/.maw/ui/dist installed, 5173 otherwise
+    expect(out).toMatch(/^http:\/\/localhost:\d+\/federation_2d\.html$/);
     // No comments, no extra noise — pipe-friendly.
     expect(out).not.toContain("#");
     expect(out.split("\n").length).toBe(1);
@@ -169,14 +170,14 @@ describe("renderUiOutput — bare mode", () => {
 
   test("--3d → federation.html", () => {
     const out = renderUiOutput({ threeD: true });
-    expect(out).toBe("http://localhost:5173/federation.html");
+    expect(out).toMatch(/^http:\/\/localhost:\d+\/federation\.html$/);
   });
 });
 
 describe("renderUiOutput — peer mode", () => {
   test("literal peer → URL with encoded ?host=", () => {
     const out = renderUiOutput({ peer: "10.20.0.7:3456" });
-    expect(out).toBe("http://localhost:5173/federation_2d.html?host=10.20.0.7%3A3456");
+    expect(out).toMatch(/^http:\/\/localhost:\d+\/federation_2d\.html\?host=10\.20\.0\.7%3A3456$/);
     expect(out.split("\n").length).toBe(1);
   });
 
@@ -202,8 +203,8 @@ describe("renderUiOutput — tunnel mode", () => {
     expect(out).toContain("-L 3456:localhost:3456");
     expect(out).toContain("@10.20.0.16");
 
-    // The URL is on its own line for easy copy
-    expect(out).toContain("http://localhost:5173/federation_2d.html");
+    // The URL is on its own line for easy copy (port depends on Shape A install state)
+    expect(out).toMatch(/http:\/\/localhost:\d+\/federation_2d\.html/);
   });
 
   test("--tunnel without peer → usage hint", () => {
@@ -254,12 +255,13 @@ describe("the pipe-friendliness invariant", () => {
     // The SSH command is its own line with NO leading text
     const sshLine = lines.find((l) => l.startsWith("ssh "));
     expect(sshLine).not.toBeUndefined();
-    expect(sshLine).toBe("ssh -N -L 5173:localhost:5173 -L 3456:localhost:3456 " + (process.env.USER || "neo") + "@10.20.0.16");
+    expect(sshLine).toContain("-L 3456:localhost:3456");
+    expect(sshLine).toContain("@10.20.0.16");
 
     // The URL is its own line with NO leading text
     const urlLine = lines.find((l) => l.startsWith("http://"));
     expect(urlLine).not.toBeUndefined();
-    expect(urlLine).toBe("http://localhost:5173/federation_2d.html");
+    expect(urlLine).toMatch(/^http:\/\/localhost:\d+\/federation_2d\.html$/);
   });
 
   test("no ANSI escapes anywhere in tunnel mode output", () => {
