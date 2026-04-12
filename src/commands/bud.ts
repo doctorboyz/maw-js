@@ -282,7 +282,10 @@ Run \`/awaken\` for the full identity setup ceremony.
     wakeOpts.task = `issue-${opts.issue}`;
   }
   if (opts.repo) {
-    wakeOpts.incubate = opts.repo;
+    // Clone the target repo via ghq (resolve-first, no worktree).
+    // Previously set wakeOpts.incubate which auto-created a worktree — see #271.
+    const { ensureCloned } = await import("./wake-target");
+    await ensureCloned(opts.repo);
   }
 
   try {
