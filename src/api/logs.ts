@@ -1,10 +1,10 @@
-import { Hono } from "hono";
+import { Elysia } from "elysia";
 import { cfgLimit } from "../config";
 import { homedir } from "os";
 import { join, basename } from "path";
 import { readdirSync, readFileSync, statSync, existsSync } from "fs";
 
-export const logsApi = new Hono();
+export const logsApi = new Elysia();
 
 const projectsDir = join(homedir(), ".claude", "projects");
 
@@ -62,13 +62,13 @@ function countLines(filePath: string): number {
 }
 
 // GET /api/logs?q=error&agent=neo&limit=50
-logsApi.get("/logs", (c) => {
-  const q = c.req.query("q") || "";
-  const agentFilter = c.req.query("agent") || "";
-  const limit = Math.min(parseInt(c.req.query("limit") || String(cfgLimit("logsDefault")), 10) || cfgLimit("logsDefault"), cfgLimit("logsMax"));
+logsApi.get("/logs", ({ query }) => {
+  const q = query.q || "";
+  const agentFilter = query.agent || "";
+  const limit = Math.min(parseInt(query.limit || String(cfgLimit("logsDefault")), 10) || cfgLimit("logsDefault"), cfgLimit("logsMax"));
 
   if (!existsSync(projectsDir)) {
-    return c.json({ entries: [], total: 0 });
+    return { entries: [], total: 0 };
   }
 
   const results: any[] = [];
@@ -76,7 +76,7 @@ logsApi.get("/logs", (c) => {
   try {
     dirs = readdirSync(projectsDir);
   } catch {
-    return c.json({ entries: [], total: 0 });
+    return { entries: [], total: 0 };
   }
 
   for (const dir of dirs) {
@@ -161,13 +161,13 @@ logsApi.get("/logs", (c) => {
     return b.timestamp.localeCompare(a.timestamp);
   });
 
-  return c.json({ entries: results.slice(0, limit), total: results.length });
+  return { entries: results.slice(0, limit), total: results.length };
 });
 
 // GET /api/logs/agents — list all agents with session file count + total lines
-logsApi.get("/logs/agents", (c) => {
+logsApi.get("/logs/agents", () => {
   if (!existsSync(projectsDir)) {
-    return c.json({ agents: [], total: 0 });
+    return { agents: [], total: 0 };
   }
 
   const agentMap = new Map<string, { files: number; lines: number; lastModified: string | null }>();
@@ -176,7 +176,7 @@ logsApi.get("/logs/agents", (c) => {
   try {
     dirs = readdirSync(projectsDir);
   } catch {
-    return c.json({ agents: [], total: 0 });
+    return { agents: [], total: 0 };
   }
 
   for (const dir of dirs) {
@@ -222,5 +222,5 @@ logsApi.get("/logs/agents", (c) => {
       return b.lastModified.localeCompare(a.lastModified);
     });
 
-  return c.json({ agents, total: agents.length });
+  return { agents, total: agents.length };
 });

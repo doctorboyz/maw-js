@@ -74,7 +74,7 @@
  * other.
  */
 
-import { Hono } from "hono";
+import { Elysia } from "elysia";
 import { randomBytes } from "crypto";
 import { loadConfig } from "../config";
 import { signHeaders } from "../lib/federation-auth";
@@ -85,15 +85,13 @@ const PROXY_SESSION_TOKEN = randomBytes(16).toString("hex");
 const PROXY_COOKIE_NAME = "proxy_session";
 const PROXY_COOKIE_MAX_AGE = 60 * 60 * 24;
 
-function setProxySessionCookie(c: any): void {
-  c.header(
-    "Set-Cookie",
-    `${PROXY_COOKIE_NAME}=${PROXY_SESSION_TOKEN}; HttpOnly; SameSite=Strict; Path=/api/proxy; Max-Age=${PROXY_COOKIE_MAX_AGE}`,
-  );
+function setProxySessionCookie(set: any): void {
+  set.headers["Set-Cookie"] =
+    `${PROXY_COOKIE_NAME}=${PROXY_SESSION_TOKEN}; HttpOnly; SameSite=Strict; Path=/api/proxy; Max-Age=${PROXY_COOKIE_MAX_AGE}`;
 }
 
-function hasValidProxySessionCookie(c: any): boolean {
-  const cookieHeader = c.req.header("cookie") || "";
+function hasValidProxySessionCookie(request: Request): boolean {
+  const cookieHeader = request.headers.get("cookie") || "";
   const match = cookieHeader.match(new RegExp(`${PROXY_COOKIE_NAME}=([a-f0-9]+)`));
   return match !== null && match[1] === PROXY_SESSION_TOKEN;
 }
@@ -239,14 +237,14 @@ async function relayHttpToPeer(
 
 // --- Route ---------------------------------------------------------------
 
-export const proxyApi = new Hono();
+export const proxyApi = new Elysia();
 
 /**
  * GET /api/proxy/session — bootstrap a proxy session cookie.
  */
-proxyApi.get("/proxy/session", (c) => {
-  setProxySessionCookie(c);
-  return c.json({ ok: true, rotates: "on_server_restart" });
+proxyApi.get("/proxy/session", ({ set }) => {
+  setProxySessionCookie(set);
+  return { ok: true, rotates: "on_server_restart" };
 });
 
 /**
@@ -254,10 +252,10 @@ proxyApi.get("/proxy/session", (c) => {
  *
  * Body: { peer: string, method: string, path: string, body?: string, signature: string }
  */
-proxyApi.post("/proxy", async (c) => {
-  const body = await c.req.json().catch(() => null);
+proxyApi.post("/proxy", async ({ body, set, request }) => {
   if (!body || typeof body !== "object") {
-    return c.json({ error: "invalid_body" }, 400);
+    set.status = 400;
+    return { error: "invalid_body" };
   }
 
   const { peer, method, path, body: forwardBody, signature } = body as {
@@ -269,33 +267,28 @@ proxyApi.post("/proxy", async (c) => {
   };
 
   if (!peer || !method || !path || !signature) {
-    return c.json(
-      { error: "missing_fields", required: ["peer", "method", "path", "signature"] },
-      400,
-    );
+    set.status = 400;
+    return { error: "missing_fields", required: ["peer", "method", "path", "signature"] };
   }
 
   // 1. Parse signature
   const parsed = parseProxySignature(signature);
   if (!parsed) {
-    return c.json({ error: "bad_signature", expected: "[host:agent]" }, 400);
+    set.status = 400;
+    return { error: "bad_signature", expected: "[host:agent]" };
   }
 
   // 2. Session cookie check (dev bypass on NODE_ENV !== production)
   const devBypass = process.env.NODE_ENV !== "production";
-  if (!devBypass && !hasValidProxySessionCookie(c)) {
-    return c.json(
-      { error: "no_session", hint: "GET /api/proxy/session first" },
-      401,
-    );
+  if (!devBypass && !hasValidProxySessionCookie(request)) {
+    set.status = 401;
+    return { error: "no_session", hint: "GET /api/proxy/session first" };
   }
 
   // 3. Method classification
   if (!isKnownMethod(method)) {
-    return c.json(
-      { error: "unknown_method", method, allowed: [...READONLY_METHODS, ...MUTATING_METHODS] },
-      400,
-    );
+    set.status = 400;
+    return { error: "unknown_method", method, allowed: [...READONLY_METHODS, ...MUTATING_METHODS] };
   }
 
   // 4. Trust boundary: readonly methods always OK; mutations need allowlist
@@ -303,49 +296,44 @@ proxyApi.post("/proxy", async (c) => {
   if (!readonly) {
     const allowed = isProxyShellPeerAllowed(parsed.originHost);
     if (!allowed) {
-      return c.json(
-        {
-          error: "mutation_denied",
-          origin: parsed.originHost,
-          method,
-          hint: parsed.isAnon
-            ? "anonymous browser visitors can only GET; mutations require proxy.shellPeers allowlist"
-            : "add this origin to config.proxy.shellPeers to permit mutations",
-        },
-        403,
-      );
+      set.status = 403;
+      return {
+        error: "mutation_denied",
+        origin: parsed.originHost,
+        method,
+        hint: parsed.isAnon
+          ? "anonymous browser visitors can only GET; mutations require proxy.shellPeers allowlist"
+          : "add this origin to config.proxy.shellPeers to permit mutations",
+      };
     }
   }
 
   // 5. Path allowlist
   if (!isPathProxyable(path)) {
-    return c.json(
-      { error: "path_not_proxyable", path, hint: "only v1 REST endpoints are proxyable in the prototype" },
-      403,
-    );
+    set.status = 403;
+    return { error: "path_not_proxyable", path, hint: "only v1 REST endpoints are proxyable in the prototype" };
   }
 
   // 6. Resolve peer
   const peerUrl = resolveProxyPeerUrl(peer);
   if (!peerUrl) {
-    return c.json({ error: "unknown_peer", peer }, 404);
+    set.status = 404;
+    return { error: "unknown_peer", peer };
   }
 
   // 7. Relay and return
   try {
     const result = await relayHttpToPeer(peerUrl, method, path, forwardBody);
-    return c.json({
+    return {
       status: result.status,
       headers: result.headers,
       body: result.body,
       from: peerUrl,
       elapsed_ms: result.elapsedMs,
       trust_tier: readonly ? "readonly_method" : "shell_allowlisted",
-    });
+    };
   } catch (err: any) {
-    return c.json(
-      { error: "relay_failed", peer: peerUrl, reason: err?.message ?? String(err) },
-      502,
-    );
+    set.status = 502;
+    return { error: "relay_failed", peer: peerUrl, reason: err?.message ?? String(err) };
   }
 });
