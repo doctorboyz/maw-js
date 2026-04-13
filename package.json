@@ -12,7 +12,7 @@
     "deploy": "bun run build && bun src/cli.ts fleet sync && pm2 restart maw",
     "dev": "pm2 start ecosystem.config.cjs"
   },
-  "description": "maw.js — Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
+  "description": "maw.js \u2014 Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
   "dependencies": {
     "@elysiajs/cors": "^1.4.1",
     "@elysiajs/swagger": "^1.3.1",
@@ -39,5 +39,10 @@
     "@vitejs/plugin-react": "^4.3.0",
     "tailwindcss": "^4.2.1",
     "vite": "^6.0.0"
+  },
+  "exports": {
+    ".": "./src/cli.ts",
+    "./sdk": "./src/sdk.ts",
+    "./schemas": "./src/lib/schemas.ts"
   }
 }
