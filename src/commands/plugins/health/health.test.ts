@@ -13,6 +13,8 @@ mock.module(join(root, "core/transport/tmux"), () => ({
   tmux: {
     listSessions: async () => [{ name: "neo" }, { name: "white" }],
   },
+  tmuxCmd: () => "tmux",
+  Tmux: class { listSessions = async () => []; run = async () => ""; tryRun = async () => ""; },
 }));
 
 mock.module("child_process", () => ({
