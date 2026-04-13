@@ -7,8 +7,8 @@
  * mawui-oracle/ψ/writing/federation-join-easy.md for full context.
  *
  * These tests follow the bud-root.test.ts + contacts.test.ts conventions:
- * pure-function tests for the trust-boundary helpers, and in-process Hono
- * app.request() tests for the POST route with a stubbed peer backend.
+ * pure-function tests for the trust-boundary helpers, and in-process Elysia
+ * app.handle() tests for the POST route with a stubbed peer backend.
  *
  * The iteration-3 prototype is honest v0.1-over-HTTP: one JSON blob per
  * response, regex signature parse, no request IDs. Iteration 4+ protocol
@@ -17,7 +17,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { Hono } from "hono";
+import { Elysia } from "elysia";
 import {
   parseSignature,
   isReadOnlyCmd,
@@ -155,16 +155,18 @@ describe("resolvePeerUrl", () => {
 
 // ---- In-process POST route tests ----------------------------------------
 
-// Mount peerExecApi on a bare Hono app so we can call it with app.request().
+// Mount peerExecApi on an Elysia app so we can call it with app.handle().
 // This avoids booting the full server and keeps the tests deterministic.
 
-function makeApp(): Hono {
-  const app = new Hono();
-  // Mount under /api to match the real mount point in src/api/index.ts
-  const apiSub = new Hono();
-  apiSub.route("/", peerExecApi);
-  app.route("/api", apiSub);
-  return app;
+function makeApp() {
+  return new Elysia({ prefix: "/api" })
+    .onError(({ code, set }) => {
+      if (code === "PARSE") {
+        set.status = 400;
+        return { error: "invalid_body" };
+      }
+    })
+    .use(peerExecApi);
 }
 
 // Force production mode so the cookie check is active (dev bypass off).
@@ -181,7 +183,7 @@ afterEach(() => {
 describe("GET /api/peer/session", () => {
   test("issues a pe_session cookie", async () => {
     const app = makeApp();
-    const res = await app.request("/api/peer/session");
+    const res = await app.handle(new Request("http://localhost/api/peer/session"));
     expect(res.status).toBe(200);
     const cookie = res.headers.get("set-cookie");
     expect(cookie).not.toBeNull();
@@ -192,7 +194,7 @@ describe("GET /api/peer/session", () => {
 
   test("returns ok + rotation policy", async () => {
     const app = makeApp();
-    const res = await app.request("/api/peer/session");
+    const res = await app.handle(new Request("http://localhost/api/peer/session"));
     const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.rotates).toBe("on_server_restart");
@@ -200,8 +202,8 @@ describe("GET /api/peer/session", () => {
 });
 
 describe("POST /api/peer/exec (trust flow)", () => {
-  async function sessionCookie(app: Hono): Promise<string> {
-    const res = await app.request("/api/peer/session");
+  async function sessionCookie(app: ReturnType<typeof makeApp>): Promise<string> {
+    const res = await app.handle(new Request("http://localhost/api/peer/session"));
     const setCookie = res.headers.get("set-cookie") ?? "";
     const match = setCookie.match(/pe_session=([a-f0-9]+)/);
     if (!match) throw new Error("no session cookie issued");
@@ -211,11 +213,11 @@ describe("POST /api/peer/exec (trust flow)", () => {
   test("400 on missing fields (no peer)", async () => {
     const app = makeApp();
     const cookie = await sessionCookie(app);
-    const res = await app.request("/api/peer/exec", {
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({ cmd: "/dig", signature: "[local:anon-1]" }),
-    });
+    }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as any;
     expect(body.error).toBe("missing_fields");
@@ -224,11 +226,11 @@ describe("POST /api/peer/exec (trust flow)", () => {
   test("400 on bad signature shape", async () => {
     const app = makeApp();
     const cookie = await sessionCookie(app);
-    const res = await app.request("/api/peer/exec", {
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({ peer: "white", cmd: "/dig", signature: "not-a-signature" }),
-    });
+    }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as any;
     expect(body.error).toBe("bad_signature");
@@ -236,7 +238,7 @@ describe("POST /api/peer/exec (trust flow)", () => {
 
   test("401 when session cookie is missing (production mode)", async () => {
     const app = makeApp();
-    const res = await app.request("/api/peer/exec", {
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -244,7 +246,7 @@ describe("POST /api/peer/exec (trust flow)", () => {
         cmd: "/dig",
         signature: "[local:anon-a1b2c3d4]",
       }),
-    });
+    }));
     expect(res.status).toBe(401);
     const body = (await res.json()) as any;
     expect(body.error).toBe("no_session");
@@ -253,7 +255,7 @@ describe("POST /api/peer/exec (trust flow)", () => {
   test("403 when anon-* origin tries a non-readonly cmd", async () => {
     const app = makeApp();
     const cookie = await sessionCookie(app);
-    const res = await app.request("/api/peer/exec", {
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({
@@ -261,7 +263,7 @@ describe("POST /api/peer/exec (trust flow)", () => {
         cmd: "/awaken",
         signature: "[local:anon-a1b2c3d4]",
       }),
-    });
+    }));
     expect(res.status).toBe(403);
     const body = (await res.json()) as any;
     expect(body.error).toBe("shell_peer_denied");
@@ -271,7 +273,7 @@ describe("POST /api/peer/exec (trust flow)", () => {
   test("404 on unknown peer name (readonly cmd that passes trust check)", async () => {
     const app = makeApp();
     const cookie = await sessionCookie(app);
-    const res = await app.request("/api/peer/exec", {
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({
@@ -279,7 +281,7 @@ describe("POST /api/peer/exec (trust flow)", () => {
         cmd: "/dig",
         signature: "[local:anon-a1b2c3d4]",
       }),
-    });
+    }));
     expect(res.status).toBe(404);
     const body = (await res.json()) as any;
     expect(body.error).toBe("unknown_peer");
@@ -288,11 +290,11 @@ describe("POST /api/peer/exec (trust flow)", () => {
   test("invalid JSON body → 400 invalid_body", async () => {
     const app = makeApp();
     const cookie = await sessionCookie(app);
-    const res = await app.request("/api/peer/exec", {
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: "not-json-{",
-    });
+    }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as any;
     expect(body.error).toBe("invalid_body");
@@ -302,7 +304,7 @@ describe("POST /api/peer/exec (trust flow)", () => {
     // Flip to development for this one test
     process.env.NODE_ENV = "development";
     const app = makeApp();
-    const res = await app.request("/api/peer/exec", {
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" }, // no cookie
       body: JSON.stringify({
@@ -310,7 +312,7 @@ describe("POST /api/peer/exec (trust flow)", () => {
         cmd: "/dig",
         signature: "[local:anon-a1b2c3d4]",
       }),
-    });
+    }));
     // Should NOT be 401 (cookie bypassed), should be 404 (unknown peer)
     expect(res.status).toBe(404);
   });

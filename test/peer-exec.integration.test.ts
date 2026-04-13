@@ -12,11 +12,11 @@
  *
  * The peer-exec route's `relayToPeer()` calls `fetch(peerUrl + "/api/peer/exec")`
  * to forward signed requests to a peer. We can't easily run a second
- * full hono server in the test runner, so instead we replace
- * `globalThis.fetch` with a router that dispatches to a stub peer hono
- * app via its own `app.request()` method. This gives us:
+ * full Elysia server in the test runner, so instead we replace
+ * `globalThis.fetch` with a router that dispatches to a stub peer Elysia
+ * app via its own `app.handle()` method. This gives us:
  *
- *   - Real peer-exec route execution (in-process via app.request())
+ *   - Real peer-exec route execution (in-process via app.handle())
  *   - Real signed outbound construction (relayToPeer calls signHeaders)
  *   - Stub peer that records what it received and returns canned responses
  *   - Round-trip assertions on body, headers, status, elapsed_ms
@@ -37,7 +37,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { Hono } from "hono";
+import { Elysia } from "elysia";
 import { peerExecApi } from "../src/api/peer-exec";
 
 // ---- Stub peer infrastructure --------------------------------------------
@@ -52,19 +52,20 @@ interface PeerCapture {
 function buildStubPeerApp(
   capture: PeerCapture[],
   responseBuilder: (req: PeerCapture) => Response,
-): Hono {
-  const app = new Hono();
-  app.post("/api/peer/exec", async (c) => {
+) {
+  const app = new Elysia();
+  app.post("/api/peer/exec", ({ body, request }) => {
     const headers: Record<string, string> = {};
-    c.req.raw.headers.forEach((v, k) => {
+    request.headers.forEach((v, k) => {
       headers[k] = v;
     });
-    const body = await c.req.text();
+    // Elysia pre-parses the JSON body (body stream is consumed before handler runs),
+    // so we re-serialize the parsed object to reconstruct the raw JSON string.
     const cap: PeerCapture = {
-      url: c.req.url,
-      method: c.req.method,
+      url: request.url,
+      method: request.method,
       headers,
-      body,
+      body: JSON.stringify(body ?? {}),
     };
     capture.push(cap);
     return responseBuilder(cap);
@@ -74,12 +75,15 @@ function buildStubPeerApp(
 
 // ---- App-under-test ------------------------------------------------------
 
-function makeMawApp(): Hono {
-  const app = new Hono();
-  const apiSub = new Hono();
-  apiSub.route("/", peerExecApi);
-  app.route("/api", apiSub);
-  return app;
+function makeMawApp() {
+  return new Elysia({ prefix: "/api" })
+    .onError(({ code, set }) => {
+      if (code === "PARSE") {
+        set.status = 400;
+        return { error: "invalid_body" };
+      }
+    })
+    .use(peerExecApi);
 }
 
 // ---- fetch mock router ---------------------------------------------------
@@ -98,17 +102,14 @@ afterEach(() => {
   delete process.env.NODE_ENV;
 });
 
-function installPeerRouter(stubPeerUrl: string, stubApp: Hono) {
+function installPeerRouter(
+  stubPeerUrl: string,
+  stubApp: ReturnType<typeof buildStubPeerApp>,
+) {
   globalThis.fetch = (async (input: any, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.url;
     if (url.startsWith(stubPeerUrl)) {
-      // Strip the peer base and dispatch to the stub app
-      const path = url.slice(stubPeerUrl.length) || "/";
-      return stubApp.request(path, {
-        method: init?.method || "GET",
-        headers: init?.headers as any,
-        body: init?.body as any,
-      });
+      return stubApp.handle(new Request(url, init));
     }
     // Anything else falls through to the real fetch (unlikely in tests)
     return originalFetch(input, init);
@@ -144,11 +145,11 @@ describe("peer-exec integration — happy path", () => {
     installPeerRouter(stubPeerUrl, stubApp);
 
     const app = makeMawApp();
-    const res = await app.request("/api/peer/exec", {
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: makePeerExecBody(),
-    });
+    }));
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
@@ -175,11 +176,11 @@ describe("peer-exec integration — happy path", () => {
     installPeerRouter(stubPeerUrl, stubApp);
 
     const app = makeMawApp();
-    await app.request("/api/peer/exec", {
+    await app.handle(new Request("http://localhost/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: makePeerExecBody({ cmd: "/trace", args: ["--deep"] }),
-    });
+    }));
 
     expect(captures.length).toBe(1);
     const cap = captures[0];
@@ -210,11 +211,11 @@ describe("peer-exec integration — peer error paths", () => {
     installPeerRouter(stubPeerUrl, stubApp);
 
     const app = makeMawApp();
-    const res = await app.request("/api/peer/exec", {
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: makePeerExecBody(),
-    });
+    }));
 
     expect(res.status).toBe(200); // OUR route succeeded
     const body = (await res.json()) as any;
@@ -229,11 +230,11 @@ describe("peer-exec integration — peer error paths", () => {
     }) as typeof fetch;
 
     const app = makeMawApp();
-    const res = await app.request("/api/peer/exec", {
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: makePeerExecBody({ peer: "http://will-not-resolve.invalid:1234" }),
-    });
+    }));
 
     expect(res.status).toBe(502);
     const body = (await res.json()) as any;
@@ -256,11 +257,11 @@ describe("peer-exec integration — body round-trip", () => {
     installPeerRouter(stubPeerUrl, stubApp);
 
     const app = makeMawApp();
-    const res = await app.request("/api/peer/exec", {
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: makePeerExecBody(),
-    });
+    }));
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
@@ -280,11 +281,11 @@ describe("peer-exec integration — body round-trip", () => {
     installPeerRouter(stubPeerUrl, stubApp);
 
     const app = makeMawApp();
-    const res = await app.request("/api/peer/exec", {
+    const res = await app.handle(new Request("http://localhost/api/peer/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: makePeerExecBody(),
-    });
+    }));
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;

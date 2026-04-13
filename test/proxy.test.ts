@@ -7,7 +7,7 @@
  * mawui-oracle/ψ/writing/federation-join-easy.md for full context.
  *
  * Follows wormhole.test.ts conventions: pure-function tests for helpers,
- * in-process Hono app.request() tests for the route, beforeEach/afterEach
+ * in-process Elysia app.handle() tests for the route, beforeEach/afterEach
  * to toggle NODE_ENV for session-cookie checks.
  *
  * The load-bearing invariant locked here is that GET/HEAD/OPTIONS are
@@ -18,7 +18,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { Hono } from "hono";
+import { Elysia } from "elysia";
 import {
   parseProxySignature,
   isReadOnlyMethod,
@@ -178,12 +178,15 @@ describe("resolveProxyPeerUrl", () => {
 
 // ---- In-process POST route tests ----------------------------------------
 
-function makeApp(): Hono {
-  const app = new Hono();
-  const apiSub = new Hono();
-  apiSub.route("/", proxyApi);
-  app.route("/api", apiSub);
-  return app;
+function makeApp() {
+  return new Elysia({ prefix: "/api" })
+    .onError(({ code, set }) => {
+      if (code === "PARSE") {
+        set.status = 400;
+        return { error: "invalid_body" };
+      }
+    })
+    .use(proxyApi);
 }
 
 let savedEnv: string | undefined;
@@ -198,7 +201,7 @@ afterEach(() => {
 describe("GET /api/proxy/session", () => {
   test("issues a proxy_session cookie", async () => {
     const app = makeApp();
-    const res = await app.request("/api/proxy/session");
+    const res = await app.handle(new Request("http://localhost/api/proxy/session"));
     expect(res.status).toBe(200);
     const cookie = res.headers.get("set-cookie");
     expect(cookie).toMatch(/proxy_session=[a-f0-9]+/);
@@ -208,7 +211,7 @@ describe("GET /api/proxy/session", () => {
 
   test("proxy cookie name is distinct from wormhole cookie name", async () => {
     const app = makeApp();
-    const res = await app.request("/api/proxy/session");
+    const res = await app.handle(new Request("http://localhost/api/proxy/session"));
     const cookie = res.headers.get("set-cookie") ?? "";
     expect(cookie).toContain("proxy_session=");
     expect(cookie).not.toContain("wh_session=");
@@ -216,8 +219,8 @@ describe("GET /api/proxy/session", () => {
 });
 
 describe("POST /api/proxy (trust flow)", () => {
-  async function proxyCookie(app: Hono): Promise<string> {
-    const res = await app.request("/api/proxy/session");
+  async function proxyCookie(app: ReturnType<typeof makeApp>): Promise<string> {
+    const res = await app.handle(new Request("http://localhost/api/proxy/session"));
     const setCookie = res.headers.get("set-cookie") ?? "";
     const match = setCookie.match(/proxy_session=([a-f0-9]+)/);
     if (!match) throw new Error("no proxy session cookie issued");
@@ -227,11 +230,11 @@ describe("POST /api/proxy (trust flow)", () => {
   test("400 on missing fields", async () => {
     const app = makeApp();
     const cookie = await proxyCookie(app);
-    const res = await app.request("/api/proxy", {
+    const res = await app.handle(new Request("http://localhost/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({ peer: "white", method: "GET", signature: "[local:anon-1]" }),
-    });
+    }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as any;
     expect(body.error).toBe("missing_fields");
@@ -240,7 +243,7 @@ describe("POST /api/proxy (trust flow)", () => {
   test("400 on bad signature", async () => {
     const app = makeApp();
     const cookie = await proxyCookie(app);
-    const res = await app.request("/api/proxy", {
+    const res = await app.handle(new Request("http://localhost/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({
@@ -249,7 +252,7 @@ describe("POST /api/proxy (trust flow)", () => {
         path: "/api/config",
         signature: "not-a-signature",
       }),
-    });
+    }));
     expect(res.status).toBe(400);
     expect(((await res.json()) as any).error).toBe("bad_signature");
   });
@@ -257,7 +260,7 @@ describe("POST /api/proxy (trust flow)", () => {
   test("400 on unknown method", async () => {
     const app = makeApp();
     const cookie = await proxyCookie(app);
-    const res = await app.request("/api/proxy", {
+    const res = await app.handle(new Request("http://localhost/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({
@@ -266,14 +269,14 @@ describe("POST /api/proxy (trust flow)", () => {
         path: "/api/config",
         signature: "[local:anon-1]",
       }),
-    });
+    }));
     expect(res.status).toBe(400);
     expect(((await res.json()) as any).error).toBe("unknown_method");
   });
 
   test("401 when session cookie is missing in production mode", async () => {
     const app = makeApp();
-    const res = await app.request("/api/proxy", {
+    const res = await app.handle(new Request("http://localhost/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -282,7 +285,7 @@ describe("POST /api/proxy (trust flow)", () => {
         path: "/api/config",
         signature: "[local:anon-1]",
       }),
-    });
+    }));
     expect(res.status).toBe(401);
     expect(((await res.json()) as any).error).toBe("no_session");
   });
@@ -290,7 +293,7 @@ describe("POST /api/proxy (trust flow)", () => {
   test("403 when anon-* tries a mutation (POST)", async () => {
     const app = makeApp();
     const cookie = await proxyCookie(app);
-    const res = await app.request("/api/proxy", {
+    const res = await app.handle(new Request("http://localhost/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({
@@ -300,7 +303,7 @@ describe("POST /api/proxy (trust flow)", () => {
         body: "{}",
         signature: "[local:anon-a1b2c3d4]",
       }),
-    });
+    }));
     expect(res.status).toBe(403);
     const body = (await res.json()) as any;
     expect(body.error).toBe("mutation_denied");
@@ -310,7 +313,7 @@ describe("POST /api/proxy (trust flow)", () => {
   test("403 on non-allowlisted path (even GET)", async () => {
     const app = makeApp();
     const cookie = await proxyCookie(app);
-    const res = await app.request("/api/proxy", {
+    const res = await app.handle(new Request("http://localhost/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({
@@ -319,7 +322,7 @@ describe("POST /api/proxy (trust flow)", () => {
         path: "/api/action", // not in allowlist
         signature: "[local:anon-a1b2c3d4]",
       }),
-    });
+    }));
     expect(res.status).toBe(403);
     expect(((await res.json()) as any).error).toBe("path_not_proxyable");
   });
@@ -327,7 +330,7 @@ describe("POST /api/proxy (trust flow)", () => {
   test("404 on unknown peer", async () => {
     const app = makeApp();
     const cookie = await proxyCookie(app);
-    const res = await app.request("/api/proxy", {
+    const res = await app.handle(new Request("http://localhost/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({
@@ -336,7 +339,7 @@ describe("POST /api/proxy (trust flow)", () => {
         path: "/api/config",
         signature: "[local:anon-a1b2c3d4]",
       }),
-    });
+    }));
     expect(res.status).toBe(404);
     expect(((await res.json()) as any).error).toBe("unknown_peer");
   });
@@ -344,7 +347,7 @@ describe("POST /api/proxy (trust flow)", () => {
   test("dev mode bypasses the session cookie check", async () => {
     process.env.NODE_ENV = "development";
     const app = makeApp();
-    const res = await app.request("/api/proxy", {
+    const res = await app.handle(new Request("http://localhost/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -353,7 +356,7 @@ describe("POST /api/proxy (trust flow)", () => {
         path: "/api/config",
         signature: "[local:anon-1]",
       }),
-    });
+    }));
     // Should NOT be 401 (cookie bypassed) — should be 404 (unknown peer)
     expect(res.status).toBe(404);
   });
@@ -361,11 +364,11 @@ describe("POST /api/proxy (trust flow)", () => {
   test("invalid JSON → 400 invalid_body", async () => {
     const app = makeApp();
     const cookie = await proxyCookie(app);
-    const res = await app.request("/api/proxy", {
+    const res = await app.handle(new Request("http://localhost/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: "not-json-{",
-    });
+    }));
     expect(res.status).toBe(400);
     expect(((await res.json()) as any).error).toBe("invalid_body");
   });
