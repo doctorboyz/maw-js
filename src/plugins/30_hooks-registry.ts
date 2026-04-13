@@ -4,7 +4,7 @@
  * Weight-sorted: lower weight fires first (Drupal convention).
  */
 
-import type { PluginSystem } from "./system";
+import type { PluginSystem } from "./10_system";
 
 const PHASE_EXPORTS = {
   gate: ["onGate", "gate"],

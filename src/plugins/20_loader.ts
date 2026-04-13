@@ -2,8 +2,8 @@
  * Plugin loader — load TS/JS/WASM plugins from a directory.
  */
 
-import type { PluginScope } from "./types";
-import type { PluginSystem } from "./system";
+import type { PluginScope } from "./00_types";
+import type { PluginSystem } from "./10_system";
 
 /** Load a WASM plugin (shared-memory or WASI) */
 async function loadWasmPlugin(system: PluginSystem, path: string, filename: string, source: PluginScope) {

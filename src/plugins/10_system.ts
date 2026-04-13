@@ -4,7 +4,7 @@
  */
 
 import type { FeedEvent } from "../lib/feed";
-import type { Gate, Filter, Handler, Late, MawPlugin, MawHooks, PluginScope, PluginInfo, Scoped } from "./types";
+import type { Gate, Filter, Handler, Late, MawPlugin, MawHooks, PluginScope, PluginInfo, Scoped } from "./00_types";
 
 export class PluginSystem {
   private gates = new Map<string, Scoped<Gate>[]>();
