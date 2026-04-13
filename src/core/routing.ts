@@ -10,27 +10,11 @@
  * See: Soul-Brews-Studio/maw-js#201
  */
 
-// Re-export Session type for consumers
-export type { Session } from "./runtime/find-window";
-import type { Session } from "./runtime/find-window";
+import { findWindow, type Session } from "./runtime/find-window";
 import type { MawConfig } from "../config";
+import { resolveFleetSession } from "../commands/shared/wake";
 
-// Lazy imports — Bun 1.3 mock.module pollutes globally; top-level imports
-// of find-window and wake get replaced by other test files' mocks (#198).
-// Lazy require() resolves at call time, after test mocks are set up.
-let _findWindow: ((sessions: Session[], query: string) => string | undefined) | undefined;
-function findWindow(sessions: Session[], query: string): string | undefined {
-  if (!_findWindow) _findWindow = require("./runtime/find-window").findWindow;
-  return _findWindow!(sessions, query);
-}
-
-let _resolveFleetSession: ((query: string) => string | null) | undefined;
-function resolveFleetSession(query: string): string | null {
-  if (!_resolveFleetSession) {
-    try { _resolveFleetSession = require("../commands/shared/wake").resolveFleetSession; } catch { return null; }
-  }
-  return _resolveFleetSession!(query);
-}
+export type { Session };
 
 export type ResolveResult =
   | { type: "local"; target: string }
