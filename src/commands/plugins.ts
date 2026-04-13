@@ -106,9 +106,10 @@ function doLs(json: boolean, discover: () => LoadedPlugin[]): void {
       p.manifest.version,
       source,
       surfaces(p),
+      shortenHome(p.dir),
     ];
   });
-  printTable(["name", "version", "source", "surfaces"], rows);
+  printTable(["name", "version", "source", "surfaces", "dir"], rows);
 }
 
 function doInfo(name: string, discover: () => LoadedPlugin[]): void {
