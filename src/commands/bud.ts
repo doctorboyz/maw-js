@@ -43,6 +43,13 @@ export interface BudOpts {
  *   7. Update parent's sync_peers
  */
 export async function cmdBud(name: string, opts: BudOpts = {}) {
+  // Oracle names: alphanumeric + hyphens only, must start with a letter
+  if (!/^[a-zA-Z][a-zA-Z0-9-]*$/.test(name)) {
+    console.error(`  \x1b[31m✗\x1b[0m invalid oracle name: "${name}"`);
+    console.error(`  \x1b[90m  names must start with a letter and contain only letters, numbers, hyphens\x1b[0m`);
+    process.exit(1);
+  }
+
   const config = loadConfig();
   const ghqRoot = config.ghqRoot;
   const org = opts.org || config.githubOrg || "Soul-Brews-Studio";
