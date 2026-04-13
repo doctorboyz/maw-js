@@ -64,7 +64,10 @@ export const api = new Elysia({ prefix: "/api" })
 const bundledPlugins = discoverPackages();
 for (const p of bundledPlugins) {
   if (!p.manifest.api) continue;
-  const { path: apiPath, methods } = p.manifest.api;
+  // Strip /api prefix from manifest path — Elysia already has prefix: "/api"
+  const rawPath = p.manifest.api.path;
+  const apiPath = rawPath.startsWith("/api") ? rawPath.slice(4) : rawPath;
+  const { methods } = p.manifest.api;
   if (methods.includes("GET")) {
     api.get(apiPath, async ({ query }) => {
       const result = await invokePlugin(p, { source: "api", args: query ?? {} });
