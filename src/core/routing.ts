@@ -12,7 +12,16 @@
 
 import { findWindow, type Session } from "./runtime/find-window";
 import type { MawConfig } from "../config";
-import { resolveFleetSession } from "../commands/shared/wake";
+
+// Lazy import — avoids dragging wake → config → getEnvVars at module load time
+// which breaks tests due to Bun 1.3 mock.module pollution (#198)
+let _resolveFleetSession: ((query: string) => string | null) | undefined;
+function resolveFleetSession(query: string): string | null {
+  if (!_resolveFleetSession) {
+    try { _resolveFleetSession = require("../commands/shared/wake").resolveFleetSession; } catch { return null; }
+  }
+  return _resolveFleetSession!(query);
+}
 
 export type ResolveResult =
   | { type: "local"; target: string }

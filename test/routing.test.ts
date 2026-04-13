@@ -3,15 +3,10 @@
  * Test cases designed by oracle-world:mawjs, implemented by white:mawjs-oracle.
  * See: #201
  */
-import { describe, test, expect, mock } from "bun:test";
-import { mockConfigModule } from "./helpers/mock-config";
+import { describe, test, expect } from "bun:test";
+import { resolveTarget } from "../src/core/routing";
 import type { Session } from "../src/core/runtime/find-window";
 import type { MawConfig } from "../src/config";
-
-// Prevent getEnvVars mock.module pollution from other test files (#198)
-mock.module("../src/config", () => mockConfigModule(() => ({ node: "white" })));
-
-const { resolveTarget } = await import("../src/core/routing");
 
 // --- Fixtures ---
 
