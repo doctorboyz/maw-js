@@ -11,7 +11,7 @@ import { parseFlags } from "./parse-args";
 
 export async function routeAgent(cmd: string, args: string[]): Promise<boolean> {
   if (cmd === "wake") {
-    if (!args[1]) { console.error("usage: maw wake <oracle|org/repo|URL> [task] [--new <name>] [--fresh] [--no-attach] [--list]\n       maw wake all [--kill]"); process.exit(1); }
+    if (!args[1]) { console.error("usage: maw wake <oracle|org/repo|URL> [task] [--task \"<prompt>\"] [--new <name>] [--fresh] [--no-attach] [--issue N] [--pr N] [--repo org/name] [--list]\n       maw wake all [--kill]"); process.exit(1); }
     if (args[1].toLowerCase() === "all") {
       const flags = parseFlags(args, { "--kill": Boolean, "--all": Boolean, "--resume": Boolean }, 2);
       await cmdWakeAll({ kill: flags["--kill"], all: flags["--all"], resume: flags["--resume"] });
@@ -22,6 +22,7 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
         "--issue": Number,
         "--pr": Number,
         "--repo": String,
+        "--task": String,
         "--fresh": Boolean,
         "--no-attach": Boolean,
         "--list": Boolean,
@@ -45,6 +46,8 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
       if (flags["--fresh"]) wakeOpts.fresh = true;
       if (flags["--no-attach"]) wakeOpts.noAttach = true;
       if (flags["--list"]) wakeOpts.listWt = true;
+      // --task "<prompt>" = fire-and-forget: sends prompt to claude without attaching
+      if (flags["--task"]) wakeOpts.noAttach = true;
 
       // Positional args after oracle name: task, then prompt
       const positionals = flags._;
@@ -61,6 +64,9 @@ export async function routeAgent(cmd: string, args: string[]): Promise<boolean> 
         console.log(`\x1b[36m⚡\x1b[0m fetching PR #${prNum}...`);
         wakeOpts.prompt = await fetchGitHubPrompt("pr", prNum, repo);
         if (!wakeOpts.task) wakeOpts.task = `pr-${prNum}`;
+      } else if (flags["--task"]) {
+        // No --issue/--pr: use --task string directly as the prompt
+        wakeOpts.prompt = flags["--task"];
       }
       await cmdWake(oracleName, wakeOpts);
     }

@@ -160,6 +160,13 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     }
     return true;
   }
+  if (cmd === "agents" || cmd === "agent") {
+    const { cmdAgents } = await import("../commands/agents");
+    const { parseFlags } = await import("./parse-args");
+    const flags = parseFlags(args, { "--json": Boolean, "--all": Boolean, "--node": String }, 1);
+    await cmdAgents({ json: flags["--json"], all: flags["--all"], node: flags["--node"] });
+    return true;
+  }
   if (cmd === "serve") {
     const portArg = args.find(a => a !== "serve" && /^\d+$/.test(a));
     const { startServer } = await import("../server");
