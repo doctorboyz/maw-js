@@ -15,6 +15,11 @@
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { parseFlags } from "./parse-args";
+import {
+  buildImportObject, preCacheBridge, readString,
+  textEncoder, textDecoder,
+  type WasmBridge,
+} from "./wasm-bridge";
 
 export interface CommandDescriptor {
   name: string | string[];
@@ -34,6 +39,7 @@ const wasmInstances = new Map<string, {
   handle: (ptr: number, len: number) => number;
   memory: WebAssembly.Memory;
   instance: WebAssembly.Instance;
+  bridge: WasmBridge;
 }>();
 
 /** Register a command from a descriptor + file path */
@@ -70,6 +76,7 @@ export function matchCommand(args: string[]): { desc: CommandDescriptor; remaini
 /**
  * Load a WASM command plugin. Expects exports: handle(ptr, len) + memory.
  * Optionally exports command_name/command_desc globals for metadata.
+ * Host functions (maw_print, maw_identity, etc.) are injected via importObject.
  */
 async function loadWasmCommand(path: string, filename: string, scope: "builtin" | "user"): Promise<void> {
   const wasmBytes = readFileSync(path);
@@ -83,9 +90,21 @@ async function loadWasmCommand(path: string, filename: string, scope: "builtin" 
     return;
   }
 
-  const instance = new WebAssembly.Instance(mod);
+  // Late-binding refs — the instance isn't created yet when we build the bridge
+  let wasmMemory: WebAssembly.Memory;
+  let wasmAlloc: (size: number) => number;
+
+  const bridge = buildImportObject(
+    () => wasmMemory,
+    () => wasmAlloc,
+  );
+
+  const instance = new WebAssembly.Instance(mod, bridge);
+  wasmMemory = instance.exports.memory as WebAssembly.Memory;
+  wasmAlloc = (instance.exports.maw_alloc as (size: number) => number)
+    ?? bridge.env.maw_alloc; // fallback to host-side bump allocator
+
   const handle = instance.exports.handle as (ptr: number, len: number) => number;
-  const memory = instance.exports.memory as WebAssembly.Memory;
 
   // Read command name from exports or derive from filename
   const name = (instance.exports.command_name as WebAssembly.Global)?.value
@@ -100,8 +119,8 @@ async function loadWasmCommand(path: string, filename: string, scope: "builtin" 
   );
 
   // Store the instance for execution
-  wasmInstances.set(path, { handle, memory, instance });
-  console.log(`[commands] loaded wasm: ${filename}`);
+  wasmInstances.set(path, { handle, memory: wasmMemory, instance, bridge });
+  console.log(`[commands] loaded wasm: ${filename} (host functions: enabled)`);
 }
 
 /** Execute a matched command — lazy import + parseFlags + call handler */
@@ -109,22 +128,35 @@ export async function executeCommand(desc: CommandDescriptor, remaining: string[
   if (desc.path?.endsWith(".wasm")) {
     const wasm = wasmInstances.get(desc.path!);
     if (!wasm) { console.error(`[commands] WASM instance not found: ${desc.path}`); return; }
-    // Write args as JSON to shared memory
+
+    // Pre-cache identity + federation so sync host functions return real data
+    await preCacheBridge(wasm.bridge);
+
+    // Write args as JSON to shared memory via allocator
     const json = JSON.stringify(remaining);
-    const encoder = new TextEncoder();
-    const bytes = encoder.encode(json);
-    const view = new Uint8Array(wasm.memory.buffer);
-    view.set(bytes, 0);
-    // Call handle(ptr=0, len=bytes.length)
-    const resultPtr = wasm.handle(0, bytes.length);
-    // Read result from memory if returned
+    const bytes = textEncoder.encode(json);
+    const argPtr = (wasm.instance.exports.maw_alloc as Function)?.(bytes.length)
+      ?? 0; // fallback: write at offset 0 for legacy modules
+    new Uint8Array(wasm.memory.buffer).set(bytes, argPtr);
+
+    // Call handle(ptr, len)
+    const resultPtr = wasm.handle(argPtr, bytes.length);
+
+    // Read result: if module uses length-prefixed protocol, read len from first 4 bytes
     if (resultPtr > 0) {
-      const decoder = new TextDecoder();
-      // Read until null terminator or reasonable limit
-      let end = resultPtr;
-      while (end < view.length && view[end] !== 0) end++;
-      const result = decoder.decode(view.slice(resultPtr, end));
-      if (result) console.log(result);
+      const view = new DataView(wasm.memory.buffer);
+      const len = view.getUint32(resultPtr, true);
+      if (len > 0 && len < 1_000_000) {
+        const result = readString(wasm.memory, resultPtr + 4, len);
+        if (result) console.log(result);
+      } else {
+        // Fallback: null-terminated string (legacy modules)
+        const raw = new Uint8Array(wasm.memory.buffer);
+        let end = resultPtr;
+        while (end < raw.length && raw[end] !== 0) end++;
+        const result = textDecoder.decode(raw.slice(resultPtr, end));
+        if (result) console.log(result);
+      }
     }
     return;
   }
