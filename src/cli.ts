@@ -34,7 +34,41 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
 } else if (cmd === "update" || cmd === "upgrade") {
   const { execSync } = require("child_process");
   const { repository } = require("../package.json");
-  const ref = args[1] || "main";
+  let ref = args[1] || "main";
+
+  // Channel shortcut: "alpha" / "beta" → resolve to latest matching tag
+  if (ref === "alpha" || ref === "beta") {
+    const channel = ref;
+    try {
+      const output = execSync(
+        `git ls-remote --tags --refs https://github.com/${repository}.git`,
+        { encoding: "utf-8" }
+      );
+      const tags = output
+        .split("\n")
+        .map((line: string) => (line.split("\t")[1] || "").replace("refs/tags/", "").trim())
+        .filter((t: string) => /^v\d+\.\d+\.\d+-\w+\.\d+$/.test(t) && t.includes(`-${channel}.`));
+      if (tags.length === 0) {
+        console.error(`\x1b[31merror\x1b[0m: no ${channel} tags in ${repository}`);
+        process.exit(1);
+      }
+      tags.sort((a: string, b: string) => {
+        const parse = (tag: string): number[] => {
+          const m = tag.match(/^v(\d+)\.(\d+)\.(\d+)-\w+\.(\d+)$/);
+          return m ? [+m[1], +m[2], +m[3], +m[4]] : [0, 0, 0, 0];
+        };
+        const pa = parse(a), pb = parse(b);
+        for (let i = 0; i < 4; i++) if (pa[i] !== pb[i]) return pb[i] - pa[i];
+        return 0;
+      });
+      ref = tags[0];
+      console.log(`\n  📍 ${channel} channel → ${ref}`);
+    } catch (e: any) {
+      console.error(`\x1b[31merror\x1b[0m: failed to resolve ${channel} channel: ${e.message}`);
+      process.exit(1);
+    }
+  }
+
   const before = getVersionString();
   console.log(`\n  🍺 maw update ${ref}\n`);
   console.log(`  from: ${before}`);
