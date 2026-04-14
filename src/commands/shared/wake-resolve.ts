@@ -1,10 +1,7 @@
-import { hostExec } from "../../core/transport/ssh";
-import { tmux } from "../../core/transport/tmux";
+import { hostExec, tmux, FLEET_DIR, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
-import { FLEET_DIR } from "../../core/paths";
-import { curlFetch } from "../../core/transport/curl-fetch";
 
 /** Resolve repo slug from git remote or --repo flag */
 async function resolveRepo(repo?: string): Promise<string> {

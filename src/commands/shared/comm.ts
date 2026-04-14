@@ -1,12 +1,10 @@
-import { listSessions, capture, sendKeys, getPaneCommand, getPaneCommands, getPaneInfos, Session } from "../../core/transport/ssh";
-import { findWindow } from "../../core/runtime/find-window";
+import {
+  listSessions, capture, sendKeys, getPaneCommand, getPaneCommands, getPaneInfos,
+  findWindow, runHook, scanWorktrees, curlFetch, findPeerForTarget, resolveTarget,
+  type SshSession as Session,
+} from "../../sdk";
 import { loadConfig, cfgLimit } from "../../config";
 import { resolveFleetSession } from "./wake";
-import { runHook } from "../../core/runtime/hooks";
-import { scanWorktrees } from "../../core/fleet/worktrees";
-import { curlFetch } from "../../core/transport/curl-fetch";
-import { findPeerForTarget } from "../../core/transport/peers";
-import { resolveTarget } from "../../core/routing";
 import { appendFile, mkdir } from "fs/promises";
 import { homedir, hostname } from "os";
 import { join } from "path";

@@ -18,8 +18,7 @@ import { existsSync } from "fs";
 import { join } from "path";
 import { loadConfig } from "../../config";
 import type { PeerConfig, MawConfig } from "../../config";
-import { listSessions } from "../../core/transport/ssh";
-import { curlFetch } from "../../core/transport/curl-fetch";
+import { listSessions, curlFetch } from "../../sdk";
 import { loadFleetEntries } from "./fleet-load";
 
 /**

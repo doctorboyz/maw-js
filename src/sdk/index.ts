@@ -19,17 +19,47 @@ export type {
 
 // ─── Identity & Config ───────────────────────────────────────────────────────
 
-export { loadConfig, saveConfig } from "../config";
+export {
+  loadConfig, saveConfig, buildCommand, buildCommandInDir,
+  getEnvVars, cfgTimeout, cfgLimit, cfgInterval, cfg, D,
+  resetConfig,
+} from "../config";
 export type { MawConfig } from "../config";
 
 // ─── Transport ───────────────────────────────────────────────────────────────
 
 export { tmux } from "../core/transport/tmux";
-export { hostExec } from "../core/transport/ssh";
+export {
+  hostExec, listSessions, capture, sendKeys,
+  getPaneCommand, getPaneCommands, getPaneInfos,
+} from "../core/transport/ssh";
+export type { Session as SshSession } from "../core/transport/ssh";
+export { curlFetch } from "../core/transport/curl-fetch";
+export {
+  getPeers, getFederationStatus, findPeerForTarget,
+} from "../core/transport/peers";
 export { resolveTarget } from "../core/routing";
 export type { ResolveResult } from "../core/routing";
 export { findWindow } from "../core/runtime/find-window";
 export type { Session, Window } from "../core/runtime/find-window";
+
+// ─── Runtime ─────────────────────────────────────────────────────────────────
+
+export { runHook } from "../core/runtime/hooks";
+export { getTriggers, getTriggerHistory } from "../core/runtime/triggers";
+
+// ─── Fleet ───────────────────────────────────────────────────────────────────
+
+export { FLEET_DIR, CONFIG_DIR, MAW_ROOT, CONFIG_FILE } from "../core/paths";
+export { scanWorktrees, cleanupWorktree } from "../core/fleet/worktrees";
+export { saveTabOrder, restoreTabOrder } from "../core/fleet/tab-order";
+export { takeSnapshot, listSnapshots, loadSnapshot, latestSnapshot } from "../core/fleet/snapshot";
+export { readAudit, logAudit } from "../core/fleet/audit";
+export {
+  scanLocal, scanRemote, scanFull, scanAndCache,
+  readCache, isCacheStale,
+} from "../core/fleet/oracle-registry";
+export type { OracleEntry, RegistryCache } from "../core/fleet/oracle-registry";
 
 // ─── Artifacts ───────────────────────────────────────────────────────────────
 

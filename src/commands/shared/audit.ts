@@ -1,4 +1,4 @@
-import { readAudit } from "../../core/fleet/audit";
+import { readAudit } from "../../sdk";
 
 export async function cmdAudit(count = 20) {
   const lines = readAudit(count);

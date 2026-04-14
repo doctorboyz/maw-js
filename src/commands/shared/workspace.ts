@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from 
 import { join } from "path";
 import { homedir } from "os";
 import { loadConfig, cfgTimeout } from "../../config";
-import { curlFetch } from "../../core/transport/curl-fetch";
+import { curlFetch } from "../../sdk";
 
 // ── Workspace config directory ──────────────────────────────────────
 const WORKSPACES_DIR = join(
