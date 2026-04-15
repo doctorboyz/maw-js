@@ -210,20 +210,36 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
       await executeCommand(pluginMatch.desc, pluginMatch.remaining);
     } else {
       // Fallback: check plugin registry for bundled commands
+      // #349/#351/#354 — prefix match MUST require word boundary. Loose
+      // `startsWith(n)` lets alias "rest" of stop plugin match "restart --help"
+      // and invoke destructive cmdSleep. Fix: require exact OR `n + " "` prefix.
+      // Also: slice by the MATCHED name (alias or command), not always command,
+      // so remaining args are computed correctly when an alias fires.
       const { discoverPackages, invokePlugin } = await import("./plugin/registry");
       const plugins = discoverPackages();
       const cmdName = args.join(" ").toLowerCase();
+      let matched = false;
       for (const p of plugins) {
         if (!p.manifest.cli) continue;
         const names = [p.manifest.cli.command, ...(p.manifest.cli.aliases || [])];
-        if (names.some(n => cmdName.startsWith(n.toLowerCase()))) {
-          const remaining = cmdName.slice(p.manifest.cli.command.length).trim().split(/\s+/).filter(Boolean);
+        let matchedName: string | null = null;
+        for (const n of names) {
+          const lower = n.toLowerCase();
+          if (cmdName === lower || cmdName.startsWith(lower + " ")) {
+            matchedName = lower;
+            break;
+          }
+        }
+        if (matchedName) {
+          matched = true;
+          const remaining = cmdName.slice(matchedName.length).trim().split(/\s+/).filter(Boolean);
           const result = await invokePlugin(p, { source: "cli", args: remaining.length ? remaining : args.slice(1) });
           if (result.ok && result.output) console.log(result.output);
           else if (!result.ok) { console.error(result.error); process.exit(1); }
           process.exit(0);
         }
       }
+      if (matched) { /* unreachable — kept for clarity */ }
       // Default: agent name shorthand (maw <agent> <msg> or maw <agent>)
       if (args.length >= 2) {
         const f = args.includes("--force");

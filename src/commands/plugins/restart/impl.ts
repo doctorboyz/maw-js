@@ -15,7 +15,29 @@ import { Tmux } from "../../../sdk";
 import { cmdSleep, cmdWakeAll } from "../../shared/fleet";
 import { execSync } from "child_process";
 
-export async function cmdRestart(opts: { noUpdate?: boolean; ref?: string } = {}) {
+const HELP_TEXT = [
+  "usage: maw restart [--no-update] [--ref <git-ref>]",
+  "",
+  "  Restart the whole maw fleet:",
+  "    1. kill stale *-view sessions",
+  "    2. update maw-js (unless --no-update)",
+  "    3. stop fleet (maw stop)",
+  "    4. wake fleet (maw wake all)",
+  "",
+  "  Flags:",
+  "    --no-update   skip the git pull + rebuild step",
+  "    --ref <ref>   update to a specific ref (branch/tag/sha) instead of default",
+  "    --help, -h    show this message and exit (no side effects)",
+].join("\n");
+
+export async function cmdRestart(opts: { noUpdate?: boolean; ref?: string; help?: boolean } = {}) {
+  // #349 — defense-in-depth guard. The index.ts handler should catch --help
+  // first, but a broken dispatch could call cmdRestart directly with opts=defaults.
+  // Check process.argv too since we're the destructive core.
+  if (opts.help || process.argv.includes("--help") || process.argv.includes("-h")) {
+    console.log(HELP_TEXT);
+    return;
+  }
   const tmux = new Tmux();
   console.log(`\n  \x1b[36m🔄 maw restart\x1b[0m\n`);
 
