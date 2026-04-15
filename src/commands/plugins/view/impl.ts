@@ -9,10 +9,14 @@ export async function cmdView(agent: string, windowHint?: string, clean = false)
   const sessions = await listSessions();
   const allWindows = sessions.flatMap(s => s.windows.map(w => ({ session: s.name, ...w })));
 
+  // Filter out accidental view-of-view sessions before matching — they are
+  // never legitimate targets (created by prior `maw a X-view` mistakes).
+  const candidateSessions = sessions.filter(s => !/-view-view$/.test(s.name));
+
   // Resolve agent → session via canonical matcher (exact > fuzzy > ambiguous > none).
   // Fallback: if no name match, check whether a window name contains the agent
   // (e.g. `maw view foo` hits a window named "foo-work" inside an unrelated session).
-  const resolved = resolveSessionTarget(agent, sessions);
+  const resolved = resolveSessionTarget(agent, candidateSessions);
   let sessionName: string | null = null;
   if (resolved.kind === "exact" || resolved.kind === "fuzzy") {
     sessionName = resolved.match.name;
@@ -25,7 +29,7 @@ export async function cmdView(agent: string, windowHint?: string, clean = false)
     process.exit(1);
   } else {
     const agentLower = agent.toLowerCase();
-    const byWindow = sessions.find(s => s.windows.some(w => w.name.toLowerCase().includes(agentLower)));
+    const byWindow = candidateSessions.find(s => s.windows.some(w => w.name.toLowerCase().includes(agentLower)));
     if (byWindow) sessionName = byWindow.name;
   }
   if (!sessionName) {
@@ -40,6 +44,56 @@ export async function cmdView(agent: string, windowHint?: string, clean = false)
     process.exit(1);
   }
 
+  const t = new Tmux();
+  const host = process.env.MAW_HOST || loadConfig().host || "local";
+  const isLocal = host === "local" || host === "localhost";
+  const socket = resolveSocket();
+
+  // If the resolved session is already a view AND the user didn't explicitly
+  // request a view (agent doesn't end in '-view'), attach directly — skip the
+  // grouped-session dance that would otherwise create X-view-view.
+  if (sessionName.endsWith("-view") && !agent.endsWith("-view")) {
+    if (windowHint) {
+      const win = allWindows.find(w =>
+        w.session === sessionName && (
+          w.name === windowHint ||
+          w.name.includes(windowHint) ||
+          String(w.index) === windowHint
+        )
+      );
+      if (win) {
+        await t.selectWindow(`${sessionName}:${win.index}`);
+        console.log(`\x1b[36mwindow\x1b[0m  → ${win.name} (${win.index})`);
+      } else {
+        console.error(`\x1b[33mwarn\x1b[0m: window '${windowHint}' not found, using default`);
+      }
+    }
+    if (clean) {
+      await t.set(sessionName, "status", "off");
+    }
+    console.log(`\x1b[36mattach\x1b[0m  → ${sessionName}${clean ? " (clean)" : ""}`);
+    if (isLocal && process.env.TMUX) {
+      await t.switchClient(sessionName);
+      console.log(
+        `\x1b[90mhint\x1b[0m    → detach with prefix+d, then \`tmux kill-session -t ${sessionName}\` when done`,
+      );
+      return;
+    }
+    const directCmd = isLocal
+      ? socket
+        ? `tmux -S ${socket} attach-session -t ${sessionName}`
+        : `tmux attach-session -t ${sessionName}`
+      : `ssh -tt ${host} "${tmuxCmd()} attach-session -t '${sessionName}'"`;
+    try {
+      execSync(directCmd, { stdio: "inherit" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`\x1b[33mwarn\x1b[0m: attach exited non-zero — ${msg}`);
+    }
+    // We did NOT create this session, so we do NOT kill it on cleanup.
+    return;
+  }
+
   // Generate view name from RESOLVED session (not raw input) — prevents duplicates
   // e.g. "maw a worm" and "maw a wormhole" both resolve to "102-white-wormhole"
   // and should reuse the same view session instead of creating worm-view + wormhole-view
@@ -47,7 +101,6 @@ export async function cmdView(agent: string, windowHint?: string, clean = false)
   const viewName = `${viewBase}-view${windowHint ? `-${windowHint}` : ""}`;
 
   // Kill existing view with same name
-  const t = new Tmux();
   await t.killSession(viewName);
 
   // Create grouped session
@@ -77,9 +130,6 @@ export async function cmdView(agent: string, windowHint?: string, clean = false)
   }
 
   // Attach interactively
-  const host = process.env.MAW_HOST || loadConfig().host || "local";
-  const isLocal = host === "local" || host === "localhost";
-  const socket = resolveSocket();
   console.log(`\x1b[36mattach\x1b[0m  → ${viewName}${clean ? " (clean)" : ""}`);
 
   // Already inside tmux? switch-client is the only option — nested
