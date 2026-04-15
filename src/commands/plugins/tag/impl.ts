@@ -32,12 +32,12 @@ export interface TagOpts {
 export async function cmdTag(target: string, opts: TagOpts = {}) {
   if (!target) {
     console.error("usage: maw tag <target> [--pane N] [--title <text>] [--meta key=val]");
+    console.error("       maw tag <target>                   (read mode — show current tags)");
     process.exit(1);
   }
-  if (!opts.title && !opts.meta?.length) {
-    console.error("  \x1b[31m✗\x1b[0m nothing to tag — supply --title and/or --meta key=val");
-    process.exit(1);
-  }
+
+  // Read mode: no write flags → show current tags on the target pane.
+  const isRead = !opts.title && (!opts.meta || opts.meta.length === 0);
 
   const tmux = tmuxCmd();
 
@@ -84,6 +84,35 @@ export async function cmdTag(target: string, opts: TagOpts = {}) {
 
   // Append .pane if supplied; otherwise tmux targets the window's active pane.
   const fullTarget = opts.pane !== undefined ? `${resolvedTarget}.${opts.pane}` : resolvedTarget;
+
+  // Read mode: print title + all @custom options for the pane.
+  if (isRead) {
+    try {
+      const title = (await hostExec(
+        `${tmux} display-message -p -t '${fullTarget}' '#{pane_title}'`,
+      )).trim();
+      const optsRaw = await hostExec(`${tmux} show-options -p -t '${fullTarget}'`).catch(() => "");
+      const customLines = optsRaw
+        .split("\n")
+        .map(l => l.trim())
+        .filter(l => l.startsWith("@"));
+
+      console.log(`  \x1b[36m${fullTarget}\x1b[0m`);
+      console.log(`  \x1b[90m  title:\x1b[0m ${title || "(none)"}`);
+      if (customLines.length === 0) {
+        console.log(`  \x1b[90m  meta:  (none)\x1b[0m`);
+      } else {
+        console.log(`  \x1b[90m  meta:\x1b[0m`);
+        for (const line of customLines) {
+          console.log(`  \x1b[90m    ${line}\x1b[0m`);
+        }
+      }
+      return;
+    } catch (e: any) {
+      console.error(`  \x1b[31m✗\x1b[0m read failed: ${e.message || e}`);
+      process.exit(1);
+    }
+  }
 
   // Set title — tmux handles the empty-string case by clearing the title.
   if (opts.title !== undefined) {
