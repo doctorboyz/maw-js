@@ -18,7 +18,9 @@
     "test:isolated": "bun test test/isolated/ --path-ignore-patterns '**/maw-js/**'",
     "test:mock-smoke": "bun test test/zz-mock-tmux-smoke.test.ts",
     "test:plugin": "bun test src/commands/plugins/",
-    "test:all": "bun run test && bun run test:isolated && bun run test:mock-smoke && bun run test:plugin"
+    "test:all": "bun run test && bun run test:isolated && bun run test:mock-smoke && bun run test:plugin",
+    "ship:alpha": "bash scripts/ship-alpha.sh",
+    "ship:alpha:dry": "bash scripts/ship-alpha.sh --dry-run"
   },
   "description": "maw.js \u2014 Multi-Agent Workflow in Bun/TS. Remote tmux orchestra control. CLI + Web UI.",
   "dependencies": {
