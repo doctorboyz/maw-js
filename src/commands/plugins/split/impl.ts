@@ -1,4 +1,5 @@
 import { listSessions, hostExec } from "../../../sdk";
+import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 
 export interface SplitOpts {
   /** Split percentage (1-99). Default: 50. */
@@ -45,49 +46,29 @@ export async function cmdSplit(target: string, opts: SplitOpts = {}) {
     process.exit(1);
   }
 
-  // Resolve target to session:window if bare name given.
-  //
-  // Matching priority:
-  //   1. exact name (case-insensitive) — wins even if others also fuzzy-match
-  //   2. suffix match: "yeast" → "110-yeast"     (fleet-numbered sessions)
-  //   3. prefix match: "mawjs" → "mawjs-view"    (named sessions like mawjs-view, mawui-view)
-  //
-  // If step 2+3 return more than one session, fail with ambiguity error listing
-  // all candidates — silent wrong-answer is worse than a loud failure.
+  // Resolve target to session:window if bare name given. Resolution rules
+  // (exact > suffix/prefix fuzzy > ambiguous > none) live in the canonical
+  // matcher — silent wrong-answer is worse than a loud failure.
   let resolved = target;
   if (!target.includes(":")) {
     const sessions = await listSessions();
-    const lc = target.toLowerCase();
+    const r = resolveSessionTarget(target, sessions);
 
-    // Step 1 — exact match wins
-    const exact = sessions.find(s => s.name.toLowerCase() === lc);
-
-    // Step 2+3 — fuzzy match (suffix or prefix), excluding exact hit
-    const fuzzy = sessions.filter(
-      s =>
-        s.name.toLowerCase() !== lc &&
-        (s.name.toLowerCase().endsWith(`-${lc}`) || s.name.toLowerCase().startsWith(`${lc}-`)),
-    );
-
-    let match;
-    if (exact) {
-      match = exact;
-    } else if (fuzzy.length === 1) {
-      match = fuzzy[0];
-    } else if (fuzzy.length > 1) {
-      console.error(`  \x1b[31m✗\x1b[0m '${target}' is ambiguous — matches ${fuzzy.length} sessions:`);
-      for (const s of fuzzy) {
+    if (r.kind === "ambiguous") {
+      console.error(`  \x1b[31m✗\x1b[0m '${target}' is ambiguous — matches ${r.candidates.length} sessions:`);
+      for (const s of r.candidates) {
         console.error(`  \x1b[90m    • ${s.name}\x1b[0m`);
       }
       console.error(`  \x1b[90m  use the full name: maw split <exact-session>\x1b[0m`);
       process.exit(1);
-    } else {
+    }
+    if (r.kind === "none") {
       console.error(`  \x1b[31m✗\x1b[0m session '${target}' not found in fleet`);
       console.error(`  \x1b[90m  try: maw ls\x1b[0m`);
       process.exit(1);
     }
 
-    resolved = `${match.name}:${match.windows[0]?.index ?? 0}`;
+    resolved = `${r.match.name}:${r.match.windows[0]?.index ?? 0}`;
   }
 
   // Build tmux split-window command.

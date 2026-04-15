@@ -1,6 +1,7 @@
 import { listSessions } from "../../../sdk";
 import { Tmux, tmuxCmd, resolveSocket } from "../../../sdk";
 import { loadConfig } from "../../../config";
+import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { execSync } from "child_process";
 
 export async function cmdView(agent: string, windowHint?: string, clean = false) {
@@ -8,13 +9,24 @@ export async function cmdView(agent: string, windowHint?: string, clean = false)
   const sessions = await listSessions();
   const allWindows = sessions.flatMap(s => s.windows.map(w => ({ session: s.name, ...w })));
 
-  // Resolve agent → session (case-insensitive)
-  const agentLower = agent.toLowerCase();
+  // Resolve agent → session via canonical matcher (exact > fuzzy > ambiguous > none).
+  // Fallback: if no name match, check whether a window name contains the agent
+  // (e.g. `maw view foo` hits a window named "foo-work" inside an unrelated session).
+  const resolved = resolveSessionTarget(agent, sessions);
   let sessionName: string | null = null;
-  for (const s of sessions) {
-    const sLower = s.name.toLowerCase();
-    if (sLower.endsWith(`-${agentLower}`) || sLower === agentLower) { sessionName = s.name; break; }
-    if (s.windows.some(w => w.name.toLowerCase().includes(agentLower))) { sessionName = s.name; break; }
+  if (resolved.kind === "exact" || resolved.kind === "fuzzy") {
+    sessionName = resolved.match.name;
+  } else if (resolved.kind === "ambiguous") {
+    console.error(`  \x1b[31m✗\x1b[0m '${agent}' is ambiguous — matches ${resolved.candidates.length} sessions:`);
+    for (const s of resolved.candidates) {
+      console.error(`  \x1b[90m    • ${s.name}\x1b[0m`);
+    }
+    console.error(`  \x1b[90m  use the full name: maw view <exact-session>\x1b[0m`);
+    process.exit(1);
+  } else {
+    const agentLower = agent.toLowerCase();
+    const byWindow = sessions.find(s => s.windows.some(w => w.name.toLowerCase().includes(agentLower)));
+    if (byWindow) sessionName = byWindow.name;
   }
   if (!sessionName) { console.error(`session not found for: ${agent}`); process.exit(1); }
 

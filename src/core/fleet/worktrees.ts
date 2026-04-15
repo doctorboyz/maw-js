@@ -4,6 +4,7 @@ import { loadConfig } from "../../config";
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { FLEET_DIR } from "../paths";
+import { resolveWorktreeTarget } from "../matcher/resolve-target";
 
 export interface WorktreeInfo {
   path: string;
@@ -85,14 +86,26 @@ export async function scanWorktrees(): Promise<WorktreeInfo[]> {
     const fleetFile = fleetWindows.get(repo);
 
     // Try to find matching window by name pattern
-    for (const s of sessions) {
-      for (const w of s.windows) {
-        // Window names like "neo-freelance" match wt name "1-freelance"
-        const taskPart = wtName.replace(/^\d+-/, "");
-        if (w.name.endsWith(`-${taskPart}`) || w.name === taskPart) {
-          tmuxWindow = w.name;
+    // Window names like "neo-freelance" match wt name "1-freelance"
+    const taskPart = wtName.replace(/^\d+-/, "");
+    const allWindows = sessions.flatMap(s => s.windows);
+    const resolved = resolveWorktreeTarget(taskPart, allWindows);
+    switch (resolved.kind) {
+      case "exact":
+      case "fuzzy":
+        tmuxWindow = resolved.match.name;
+        break;
+      case "ambiguous":
+        console.error(`  \x1b[31m✗\x1b[0m '${taskPart}' is ambiguous — matches ${resolved.candidates.length} windows:`);
+        for (const c of resolved.candidates) {
+          console.error(`  \x1b[90m    • ${c.name}\x1b[0m`);
         }
-      }
+        console.error(`  \x1b[90m  leaving worktree ${wtName} unbound (status: stale)\x1b[0m`);
+        // tmuxWindow stays undefined → status = stale
+        break;
+      case "none":
+        // no running window → status = stale
+        break;
     }
 
     const status: WorktreeInfo["status"] = tmuxWindow ? "active" : "stale";
@@ -169,17 +182,31 @@ export async function cleanupWorktree(wtPath: string): Promise<string[]> {
   const wtName = parts[1];
   const taskPart = wtName.replace(/^\d+-/, "");
 
-  for (const s of sessions) {
-    for (const w of s.windows) {
-      if (w.name.endsWith(`-${taskPart}`) || w.name === taskPart) {
-        try {
-          await tmux.killWindow(`${s.name}:${w.name}`);
-          log.push(`killed window ${s.name}:${w.name}`);
-        } catch {
-          log.push(`window already closed: ${w.name}`);
-        }
+  const allWindows = sessions.flatMap(s => s.windows.map(w => ({ name: w.name, session: s.name })));
+  const resolved = resolveWorktreeTarget(taskPart, allWindows);
+  switch (resolved.kind) {
+    case "exact":
+    case "fuzzy": {
+      const { name: wName, session: sName } = resolved.match;
+      try {
+        await tmux.killWindow(`${sName}:${wName}`);
+        log.push(`killed window ${sName}:${wName}`);
+      } catch {
+        log.push(`window already closed: ${wName}`);
       }
+      break;
     }
+    case "ambiguous":
+      log.push(`✗ '${taskPart}' is ambiguous — matches ${resolved.candidates.length} windows:`);
+      for (const c of resolved.candidates) {
+        log.push(`    • ${c.session}:${c.name}`);
+      }
+      log.push(`  skipping window kill — use the full name to disambiguate`);
+      // don't kill anything — safer than killing the wrong window
+      break;
+    case "none":
+      // no running window to kill
+      break;
   }
 
   // 2. Get branch, remove worktree

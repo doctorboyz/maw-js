@@ -2,6 +2,7 @@ import { hostExec } from "../../../sdk";
 import { tmux } from "../../../sdk";
 import { buildCommand } from "../../../config";
 import { findWorktrees } from "../../shared/wake";
+import { resolveWorktreeTarget } from "../../../core/matcher/resolve-target";
 
 async function resolveRepo(repo: string): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
   // Support "org/repo" or bare "repo" — always search by last segment
@@ -25,7 +26,24 @@ export async function cmdWorkon(repo: string, task?: string): Promise<void> {
 
   if (task) {
     const worktrees = await findWorktrees(parentDir, repoName);
-    const match = worktrees.find(w => w.name.endsWith(`-${task}`) || w.name === task);
+    const resolved = resolveWorktreeTarget(task, worktrees);
+    let match: { path: string; name: string } | null = null;
+    switch (resolved.kind) {
+      case "exact":
+      case "fuzzy":
+        match = resolved.match;
+        break;
+      case "ambiguous":
+        console.error(`\x1b[31m✗\x1b[0m '${task}' is ambiguous — matches ${resolved.candidates.length} worktrees:`);
+        for (const c of resolved.candidates) {
+          console.error(`\x1b[90m    • ${c.name}\x1b[0m`);
+        }
+        console.error(`\x1b[90m  use the full name: maw workon ${repo} <exact-worktree>\x1b[0m`);
+        process.exit(1);
+      case "none":
+        match = null;
+        break;
+    }
 
     if (match) {
       console.log(`\x1b[33m⚡\x1b[0m reusing worktree: ${match.path}`);

@@ -1,5 +1,6 @@
 import { hostExec, tmux, restoreTabOrder, takeSnapshot } from "../../sdk";
 import { buildCommand, buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../config";
+import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
 import { execSync } from "child_process";
 
 /** Attach to tmux session — switch-client if inside tmux, attach if fresh shell */
@@ -168,7 +169,27 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
   if (opts.newWt || opts.task) {
     const name = sanitizeBranchName(opts.newWt || opts.task!);
     const worktrees = await findWorktrees(parentDir, repoName);
-    const match = !opts.fresh ? worktrees.find(w => w.name.endsWith(`-${name}`) || w.name === name) : null;
+    let match: { path: string; name: string } | null = null;
+    if (!opts.fresh) {
+      const resolved = resolveWorktreeTarget(name, worktrees);
+      switch (resolved.kind) {
+        case "exact":
+        case "fuzzy":
+          match = resolved.match;
+          break;
+        case "ambiguous": {
+          const lines = [
+            `\x1b[31m✗\x1b[0m '${name}' is ambiguous — matches ${resolved.candidates.length} worktrees:`,
+            ...resolved.candidates.map(c => `\x1b[90m    • ${c.name}\x1b[0m`),
+            `\x1b[90m  use the full name: maw wake ${oracle} --task <exact-worktree>\x1b[0m`,
+          ];
+          throw new Error(lines.join("\n"));
+        }
+        case "none":
+          match = null;
+          break;
+      }
+    }
 
     if (match) {
       console.log(`\x1b[33m⚡\x1b[0m reusing worktree: ${match.path}`);

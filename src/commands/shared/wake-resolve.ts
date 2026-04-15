@@ -1,5 +1,6 @@
 import { hostExec, tmux, FLEET_DIR, curlFetch } from "../../sdk";
 import { loadConfig, getEnvVars } from "../../config";
+import { resolveSessionTarget } from "../../core/matcher/resolve-target";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
@@ -158,9 +159,32 @@ export async function detectSession(oracle: string): Promise<string | null> {
   const sessions = await tmux.listSessions();
   const mapped = getSessionMap()[oracle];
   if (mapped && sessions.find(s => s.name === mapped)) return mapped;
-  const patternMatch = sessions.find(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${oracle}`))?.name
-    || sessions.find(s => s.name === oracle)?.name;
-  if (patternMatch) return patternMatch;
+
+  // Numeric-prefixed fleet sessions get first dibs — "110-yeast" beats a bare
+  // "yeast" or an ephemeral "yeast-view" when the user types "yeast". If two
+  // fleet sessions suffix-match, surface loudly rather than silently picking one.
+  const numeric = sessions.filter(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${oracle}`));
+  if (numeric.length === 1) return numeric[0]!.name;
+  if (numeric.length > 1) {
+    console.error(`\x1b[31merror\x1b[0m: '${oracle}' is ambiguous — matches ${numeric.length} fleet sessions:`);
+    for (const s of numeric) console.error(`\x1b[90m    • ${s.name}\x1b[0m`);
+    console.error(`\x1b[90m  use the full name: maw wake <exact-session>\x1b[0m`);
+    process.exit(1);
+  }
+
+  // No fleet match — defer to the canonical resolver on non-ephemeral sessions
+  // (wake shouldn't treat a *-view clone as "the oracle is running"). Exact
+  // wins; ambiguous non-numeric matches surface loudly.
+  const candidates = sessions.filter(s => !s.name.endsWith("-view") && !s.name.startsWith("maw-pty-"));
+  const r = resolveSessionTarget(oracle, candidates);
+  if (r.kind === "exact" || r.kind === "fuzzy") return r.match.name;
+  if (r.kind === "ambiguous") {
+    console.error(`\x1b[31merror\x1b[0m: '${oracle}' is ambiguous — matches ${r.candidates.length} sessions:`);
+    for (const s of r.candidates) console.error(`\x1b[90m    • ${s.name}\x1b[0m`);
+    console.error(`\x1b[90m  use the full name: maw wake <exact-session>\x1b[0m`);
+    process.exit(1);
+  }
+
   const fleetSession = resolveFleetSession(oracle);
   if (fleetSession && sessions.find(s => s.name === fleetSession)) return fleetSession;
   return null;
