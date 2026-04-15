@@ -45,6 +45,34 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
   const { repository } = require("../package.json");
   let ref = args[1] || "main";
 
+  const UPDATE_HELP_TEXT = [
+    "usage: maw update [ref]",
+    "",
+    "  Update maw-js to a specific ref, channel, or branch.",
+    "",
+    "  Examples:",
+    "    maw update          update to main (default)",
+    "    maw update alpha    update to latest alpha tag",
+    "    maw update beta     update to latest beta tag",
+    "    maw update main     update to main branch",
+    "",
+    "  Flags:",
+    "    --help, -h    show this message and exit (no side effects)",
+  ].join("\n");
+
+  // Layer 1: short-circuit --help/-h BEFORE any side effects (#356)
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log(UPDATE_HELP_TEXT);
+    process.exit(0);
+  }
+
+  // Layer 2: reject refs that look like flags — defense-in-depth (#356)
+  // Catches `maw update alpha --help` where --help somehow lands in args[1]
+  if (ref.startsWith("--")) {
+    console.error(`\x1b[31merror\x1b[0m: invalid ref "${ref}" — looks like a flag. Run \`maw update --help\` for usage.`);
+    process.exit(1);
+  }
+
   // Channel shortcut: "alpha" / "beta" → resolve to latest matching tag
   if (ref === "alpha" || ref === "beta") {
     const channel = ref;
