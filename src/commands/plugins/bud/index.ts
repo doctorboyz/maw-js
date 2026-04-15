@@ -29,6 +29,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--blank": Boolean,
         "--tiny": Boolean,
         "--parent": String,
+        "--cron": String,
       }, 0);
 
       const name = flags._[0];
@@ -39,11 +40,19 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         return { ok: false, error: `"${name}" looks like a flag, not an oracle name.\n  usage: maw bud <name> ${args.join(" ")}` };
       }
 
+      if (flags["--cron"] && !flags["--tiny"]) {
+        return { ok: false, error: "--cron requires --tiny" };
+      }
+
       if (flags["--tiny"]) {
         if (!flags["--parent"]) {
           return { ok: false, error: "--tiny requires --parent <oracle>" };
         }
-        await cmdBudTiny(name, { parent: flags["--parent"], org: flags["--org"] });
+        await cmdBudTiny(name, {
+          parent: flags["--parent"],
+          org: flags["--org"],
+          cron: flags["--cron"],
+        });
       } else {
         await cmdBud(name, {
           from: flags["--from"],
@@ -65,7 +74,13 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       if (body.tiny) {
         const parent = body.parent as string | undefined;
         if (!parent) return { ok: false, error: "tiny bud requires parent" };
-        await cmdBudTiny(name, { parent, org: body.org as string | undefined });
+        await cmdBudTiny(name, {
+          parent,
+          org: body.org as string | undefined,
+          cron: body.cron as string | undefined,
+        });
+      } else if (body.cron) {
+        return { ok: false, error: "cron requires tiny" };
       } else {
         await cmdBud(name, {
           from: body.from as string | undefined,

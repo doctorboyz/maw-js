@@ -31,6 +31,12 @@ export interface TinyBudOpts {
   /** Optional org override (for parentRoot resolution when parentRoot is not
    *  passed). Defaults to config.githubOrg → "Soul-Brews-Studio". */
   org?: string;
+  /** PR β of #209 — optional cron schedule (crontab format, e.g. "0 9 * * *").
+   *  When provided, appends a TriggerConfig cron entry to maw.config.json. */
+  cron?: string;
+  /** Test override: resolves to <configDir>/oracles.json and maw.config.json.
+   *  Defaults to MAW_CONFIG_DIR env var or ~/.config/maw. Not exposed on CLI. */
+  configDir?: string;
 }
 
 /**
@@ -420,4 +426,41 @@ export async function cmdBudTiny(name: string, opts: TinyBudOpts): Promise<void>
   writeFileSync(join(budDir, "memory", "logs", ".gitkeep"), "");
 
   console.log(`  \x1b[32m✓\x1b[0m tiny bud ${name} created at ${budDir}`);
+
+  // PR β of #209 — register leaf in oracle registry + optional cron trigger
+  const { registerTinyLeaf, addCronTrigger } = await import("../../../core/fleet/leaf");
+  const { homedir } = await import("os");
+  const configDir = opts.configDir
+    ?? process.env.MAW_CONFIG_DIR
+    ?? join(homedir(), ".config", "maw");
+  const registryPath = join(configDir, "oracles.json");
+  const configPath = join(configDir, "maw.config.json");
+
+  try {
+    const res = registerTinyLeaf({
+      name,
+      parent: opts.parent,
+      org,
+      parentRepo: `${opts.parent}-oracle`,
+      path: budDir,
+      buddedAt,
+      registryPath,
+    });
+    if (res.parentFound) {
+      console.log(`  \x1b[32m✓\x1b[0m leaf entry added to registry (parent: ${opts.parent})`);
+    } else {
+      console.log(`  \x1b[33m⚠\x1b[0m parent "${opts.parent}" not in registry — leaf added best-effort`);
+    }
+  } catch (e: any) {
+    console.log(`  \x1b[33m⚠\x1b[0m leaf registry write failed: ${e.message || e}`);
+  }
+
+  if (opts.cron) {
+    try {
+      addCronTrigger({ name, schedule: opts.cron, parent: opts.parent, configPath });
+      console.log(`  \x1b[32m✓\x1b[0m cron trigger added: ${opts.cron}`);
+    } catch (e: any) {
+      console.log(`  \x1b[33m⚠\x1b[0m cron trigger write failed: ${e.message || e}`);
+    }
+  }
 }
