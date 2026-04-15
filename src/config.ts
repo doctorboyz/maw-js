@@ -14,12 +14,13 @@ function detectGhqRoot(): string {
   } catch { return join(require("os").homedir(), "Code/github.com"); }
 }
 
-export type TriggerEvent = "issue-close" | "pr-merge" | "agent-idle" | "agent-wake" | "agent-crash";
+export type TriggerEvent = "issue-close" | "pr-merge" | "agent-idle" | "agent-wake" | "agent-crash" | "cron";
 
 export interface TriggerConfig {
   on: TriggerEvent;
   repo?: string;       // filter by repo (for issue-close, pr-merge)
   timeout?: number;     // seconds (for agent-idle)
+  schedule?: string;    // crontab expression (for cron) — 5-field "m h dom mon dow"
   action: string;       // shell command to execute — supports {agent}, {repo}, {issue} templates
   name?: string;        // optional human label
   once?: boolean;       // fire once then self-destruct (#149)

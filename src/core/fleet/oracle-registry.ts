@@ -52,8 +52,39 @@ export function readCache(): RegistryCache | null {
   }
 }
 
-export function writeCache(cache: RegistryCache): void {
-  writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2) + "\n", "utf-8");
+/**
+ * Pure merge helper: overlay a fresh RegistryCache on top of whatever was
+ * already on disk, preserving top-level keys the scanner doesn't manage
+ * (notably `leaves[]` from tiny-bud registration — see src/core/fleet/leaf.ts).
+ *
+ * Scanners own `schema`, `local_scanned_at`, `ghq_root`, `oracles`. Anything
+ * else passes through untouched. Exported for direct unit testing; no I/O.
+ */
+export function mergeRegistry(
+  existing: unknown,
+  cache: RegistryCache,
+): Record<string, unknown> {
+  const base =
+    existing && typeof existing === "object" && !Array.isArray(existing)
+      ? (existing as Record<string, unknown>)
+      : {};
+  return { ...base, ...cache };
+}
+
+/**
+ * Write the cache, preserving any unknown top-level keys from `targetFile`
+ * (or the real CACHE_FILE by default — the override exists for tests).
+ */
+export function writeCache(cache: RegistryCache, targetFile: string = CACHE_FILE): void {
+  let existing: unknown = null;
+  try {
+    if (existsSync(targetFile)) {
+      existing = JSON.parse(readFileSync(targetFile, "utf-8"));
+    }
+  } catch { /* malformed existing file — fall back to writing fresh */ }
+
+  const merged = mergeRegistry(existing, cache);
+  writeFileSync(targetFile, JSON.stringify(merged, null, 2) + "\n", "utf-8");
 }
 
 export function isCacheStale(cache: RegistryCache | null): boolean {
