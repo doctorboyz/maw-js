@@ -1,0 +1,104 @@
+export type TriggerEvent = "issue-close" | "pr-merge" | "agent-idle" | "agent-wake" | "agent-crash" | "cron";
+
+export interface TriggerConfig {
+  on: TriggerEvent;
+  repo?: string;       // filter by repo (for issue-close, pr-merge)
+  timeout?: number;     // seconds (for agent-idle)
+  schedule?: string;    // crontab expression (for cron) — 5-field "m h dom mon dow"
+  action: string;       // shell command to execute — supports {agent}, {repo}, {issue} templates
+  name?: string;        // optional human label
+  once?: boolean;       // fire once then self-destruct (#149)
+}
+
+/** Named peer with URL */
+export interface PeerConfig {
+  name: string;
+  url: string;
+}
+
+export interface MawIntervals {
+  capture?: number;
+  sessions?: number;
+  status?: number;
+  teams?: number;
+  preview?: number;
+  peerFetch?: number;
+  crashCheck?: number;
+}
+
+export interface MawTimeouts {
+  http?: number;
+  health?: number;
+  ping?: number;
+  pty?: number;
+  workspace?: number;
+  shellInit?: number;
+  wakeRetry?: number;
+  wakeVerify?: number;
+}
+
+export interface MawLimits {
+  feedMax?: number;
+  feedDefault?: number;
+  feedHistory?: number;
+  logsMax?: number;
+  logsDefault?: number;
+  logsTruncate?: number;
+  messageTruncate?: number;
+  ptyCols?: number;
+  ptyRows?: number;
+}
+
+export interface MawConfig {
+  host: string;
+  port: number;
+  ghqRoot: string;
+  oracleUrl: string;
+  env: Record<string, string>;
+  commands: Record<string, string>;
+  sessions: Record<string, string>;
+  tmuxSocket?: string;
+  peers?: string[];
+  idleTimeoutMinutes?: number;
+  federationToken?: string;
+  autoRestart?: boolean;
+  triggers?: TriggerConfig[];
+  /** Node identity (e.g. "white", "mba") */
+  node?: string;
+  /** Named peers with URLs */
+  namedPeers?: PeerConfig[];
+  /** Agent → node mapping (e.g. { "homekeeper": "mba", "neo": "white" }) */
+  agents?: Record<string, string>;
+  /** GitHub org for maw bud (default: Soul-Brews-Studio) */
+  githubOrg?: string;
+  /** GitHub orgs to scan for oracle repos (default: Soul-Brews-Studio, laris-co) */
+  githubOrgs?: string[];
+  /** Fixed Claude session UUIDs per agent */
+  sessionIds?: Record<string, string>;
+  /** Path to ψ/ directory */
+  psiPath?: string;
+  /** TLS cert/key paths */
+  tls?: { cert: string; key: string };
+  /** Polling intervals (ms) */
+  intervals?: MawIntervals;
+  /** HTTP/operation timeouts (ms) */
+  timeouts?: MawTimeouts;
+  /** Buffer/display limits */
+  limits?: MawLimits;
+  /** HMAC auth window (seconds) */
+  hmacWindowSeconds?: number;
+  /** PIN for web UI */
+  pin?: string;
+  /** Plugin source URLs — auto-installed on bootstrap (nuke → first run) */
+  pluginSources?: string[];
+  /** Plugin names to disable (skip during scanning and execution) */
+  disabledPlugins?: string[];
+}
+
+/** Typed defaults for intervals, timeouts, limits (#172) */
+export const D = {
+  intervals: { capture: 50, sessions: 5000, status: 3000, teams: 3000, preview: 2000, peerFetch: 10000, crashCheck: 30000 } as const,
+  timeouts: { http: 5000, health: 3000, ping: 5000, pty: 5000, workspace: 5000, shellInit: 3000, wakeRetry: 500, wakeVerify: 3000 } as const,
+  limits: { feedMax: 500, feedDefault: 50, feedHistory: 50, logsMax: 500, logsDefault: 50, logsTruncate: 500, messageTruncate: 100, ptyCols: 500, ptyRows: 200 } as const,
+  hmacWindowSeconds: 300,
+} as const;

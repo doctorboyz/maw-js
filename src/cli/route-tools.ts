@@ -3,7 +3,7 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     const { cmdPlugins } = await import("../commands/shared/plugins");
     const { parseFlags } = await import("./parse-args");
     const sub = args[1] ?? "ls";
-    const flags = parseFlags(args, { "--json": Boolean, "--force": Boolean }, 2);
+    const flags = parseFlags(args, { "--json": Boolean, "--force": Boolean, "--all": Boolean }, 2);
     await cmdPlugins(sub, args.slice(2), flags);
     return true;
   }
@@ -31,7 +31,7 @@ export async function routeTools(cmd: string, args: string[]): Promise<boolean> 
     if (sub && ["ls", "list", "info", "remove", "uninstall", "rm", "lean", "nuke", "enable", "disable"].includes(sub)) {
       const { cmdPlugins } = await import("../commands/shared/plugins");
       const { parseFlags } = await import("./parse-args");
-      const flags = parseFlags(args, { "--json": Boolean, "--force": Boolean }, 2);
+      const flags = parseFlags(args, { "--json": Boolean, "--force": Boolean, "--all": Boolean }, 2);
       await cmdPlugins(sub, args.slice(2), flags);
       return true;
     }

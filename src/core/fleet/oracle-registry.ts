@@ -55,7 +55,7 @@ export function readCache(): RegistryCache | null {
 /**
  * Pure merge helper: overlay a fresh RegistryCache on top of whatever was
  * already on disk, preserving top-level keys the scanner doesn't manage
- * (notably `leaves[]` from tiny-bud registration — see src/core/fleet/leaf.ts).
+ * (e.g. `leaves[]` from legacy tiny-bud registration — deprecated, see #209).
  *
  * Scanners own `schema`, `local_scanned_at`, `ghq_root`, `oracles`. Anything
  * else passes through untouched. Exported for direct unit testing; no I/O.

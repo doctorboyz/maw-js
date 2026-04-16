@@ -27,6 +27,7 @@ type Flags = {
   _: string[];
   "--json"?: boolean;
   "--force"?: boolean;
+  "--all"?: boolean;
   [key: string]: unknown;
 };
 
@@ -44,7 +45,7 @@ export async function cmdPlugins(
   switch (sub) {
     case "ls":
     case "list":
-      return doLs(flags["--json"] ?? false, discover);
+      return doLs(flags["--json"] ?? false, flags["--all"] ?? false, discover);
     case "info":
       if (!name) {
         console.error("usage: maw plugins info <name>");
@@ -78,19 +79,19 @@ export async function cmdPlugins(
     case "nuke":
       return doNuke();
     default:
-      return doLs(flags["--json"] ?? false, discover);
+      return doLs(flags["--json"] ?? false, flags["--all"] ?? false, discover);
   }
 }
 
 // ─── Subcommand implementations ────────────────────────────────────────────
 
-function doLs(json: boolean, discover: () => LoadedPlugin[]): void {
-  const plugins = discover();
+function doLs(json: boolean, showAll: boolean, discover: () => LoadedPlugin[]): void {
+  const allPlugins = discover();
 
   if (json) {
     console.log(
       JSON.stringify(
-        plugins.map(p => ({
+        allPlugins.map(p => ({
           name: p.manifest.name,
           version: p.manifest.version,
           surfaces: surfaces(p),
@@ -103,13 +104,22 @@ function doLs(json: boolean, discover: () => LoadedPlugin[]): void {
     return;
   }
 
-  if (plugins.length === 0) {
+  if (allPlugins.length === 0) {
     console.log("no plugins installed");
     return;
   }
 
   const { loadConfig } = require("../../config");
-  const disabled = new Set((loadConfig().disabledPlugins ?? []) as string[]);
+  const disabledSet = new Set((loadConfig().disabledPlugins ?? []) as string[]);
+
+  const activeCount = allPlugins.filter(p => !disabledSet.has(p.manifest.name)).length;
+  const disabledCount = allPlugins.length - activeCount;
+  const plugins = showAll ? allPlugins : allPlugins.filter(p => !disabledSet.has(p.manifest.name));
+
+  if (plugins.length === 0) {
+    console.log(`no active plugins. Use --all to see ${disabledCount} disabled.`);
+    return;
+  }
 
   // Group by weight tier
   const tiers: { label: string; plugins: LoadedPlugin[] }[] = [
@@ -130,7 +140,7 @@ function doLs(json: boolean, discover: () => LoadedPlugin[]): void {
     console.log(`\n\x1b[1m${tier.label}\x1b[0m (${tier.plugins.length})`);
     const rows = tier.plugins.map(p => {
       const w = p.manifest.weight ?? 50;
-      const isDisabled = disabled.has(p.manifest.name);
+      const isDisabled = disabledSet.has(p.manifest.name);
       const icon = isDisabled ? "\x1b[90m○\x1b[0m" : (w < 10 ? "\x1b[32m●\x1b[0m" : w < 50 ? "\x1b[36m●\x1b[0m" : "\x1b[33m●\x1b[0m");
       const source = `${icon} ${isDisabled ? "disabled" : (w < 10 ? "core" : w < 50 ? "standard" : "extra")}`;
       return [
@@ -144,7 +154,13 @@ function doLs(json: boolean, discover: () => LoadedPlugin[]): void {
     printTable(["name", "version", "source", "surfaces", "dir"], rows);
   }
 
-  console.log(`\ntotal: ${plugins.length} plugins`);
+  if (showAll) {
+    console.log(`\n${allPlugins.length} total (${activeCount} active, ${disabledCount} disabled)`);
+  } else if (disabledCount > 0) {
+    console.log(`\n${activeCount} active. ${disabledCount} disabled — use 'maw plugin ls --all' to see them.`);
+  } else {
+    console.log(`\n${activeCount} active`);
+  }
 }
 
 function doInfo(name: string, discover: () => LoadedPlugin[]): void {

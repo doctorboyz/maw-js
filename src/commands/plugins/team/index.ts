@@ -68,9 +68,56 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       });
     } else if (sub === "list" || sub === "ls" || !sub) {
       await cmdTeamList();
+    } else if (sub === "add" || sub === "task") {
+      // maw team add "subject" [--assign agent] [--description text]
+      const { cmdTeamTaskAdd } = await import("./task-ops");
+      const subject = args.slice(1).filter(a => !a.startsWith("--")).join(" ");
+      if (!subject) { logs.push("usage: maw team add <subject>"); return { ok: false, error: "subject required" }; }
+      const assignIdx = args.indexOf("--assign");
+      const assign = assignIdx !== -1 ? args[assignIdx + 1] : undefined;
+      const descIdx = args.indexOf("--description");
+      const desc = descIdx !== -1 ? args.slice(descIdx + 1).join(" ") : undefined;
+      // detect current team from tmux session name or arg
+      const team = "default"; // TODO: detect from context
+      cmdTeamTaskAdd(team, subject, { assign, description: desc });
+
+    } else if (sub === "tasks") {
+      // maw team tasks [team-name]
+      const { cmdTeamTaskList } = await import("./task-ops");
+      const team = args[1] || "default";
+      cmdTeamTaskList(team);
+
+    } else if (sub === "done") {
+      // maw team done <id>
+      const { cmdTeamTaskDone } = await import("./task-ops");
+      const id = parseInt(args[1]);
+      if (!id) { return { ok: false, error: "usage: maw team done <task-id>" }; }
+      const team = "default"; // TODO: detect
+      cmdTeamTaskDone(team, id);
+
+    } else if (sub === "assign") {
+      // maw team assign <id> <agent>
+      const { cmdTeamTaskAssign } = await import("./task-ops");
+      const id = parseInt(args[1]);
+      const agent = args[2];
+      if (!id || !agent) { return { ok: false, error: "usage: maw team assign <task-id> <agent>" }; }
+      const team = "default";
+      cmdTeamTaskAssign(team, id, agent);
+
+    } else if (sub === "status") {
+      // maw team status [team-name]
+      const { cmdTeamStatus } = await import("./team-status");
+      await cmdTeamStatus(args[1]);
+
+    } else if (sub === "delete" || sub === "rm") {
+      // maw team delete <team-name>
+      const { cmdTeamDelete } = await import("./team-cleanup");
+      if (!args[1]) { return { ok: false, error: "usage: maw team delete <team-name>" }; }
+      await cmdTeamDelete(args[1]);
+
     } else {
       logs.push(`unknown team subcommand: ${sub}`);
-      logs.push("usage: maw team <create|spawn|send|shutdown|resume|lives|list>");
+      logs.push("usage: maw team <create|spawn|send|shutdown|resume|lives|list|status|add|tasks|done|assign|delete>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 
