@@ -8,6 +8,23 @@ export const command = {
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const { cmdAvengers } = await import("./impl");
 
+  const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
+
+  // Handle --help before monkey-patching so output always reaches stdout
+  if (args[0] === "--help" || args[0] === "-h") {
+    const help = [
+      "usage: maw avengers [status|best|traffic|health] — ARRA-01 rate limit monitor",
+      "",
+      "  maw avengers status    All accounts + rate limits",
+      "  maw avengers best      Account with most capacity",
+      "  maw avengers traffic   Traffic stats",
+      "  maw avengers health    Quick connectivity check",
+    ].join("\n");
+    if (ctx.writer) ctx.writer(help);
+    else console.log(help);
+    return { ok: true };
+  }
+
   const logs: string[] = [];
   const origLog = console.log;
   const origError = console.error;
@@ -21,7 +38,6 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
   };
 
   try {
-    const args = ctx.source === "cli" ? (ctx.args as string[]) : [];
     await cmdAvengers(args[0] || "status");
     return { ok: true, output: logs.join("\n") || undefined };
   } catch (e: any) {

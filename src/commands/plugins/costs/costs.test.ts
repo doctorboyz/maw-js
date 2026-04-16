@@ -57,14 +57,9 @@ describe("costs plugin", () => {
 
   it("returns ok:false when server is unreachable", async () => {
     (global as any).fetch = mock(async () => { throw new Error("ECONNREFUSED"); });
-    const origExit = process.exit;
-    (process as any).exit = (code: number) => { throw new Error(`exit:${code}`); };
-    try {
-      const ctx: InvokeContext = { source: "cli", args: [] };
-      const result = await handler(ctx);
-      expect(result.ok).toBe(false);
-    } finally {
-      (process as any).exit = origExit;
-    }
+    const ctx: InvokeContext = { source: "cli", args: [] };
+    const result = await handler(ctx);
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("maw serve");
   });
 });

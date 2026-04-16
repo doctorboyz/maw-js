@@ -65,18 +65,23 @@ export async function cmdHealth() {
     checks.push({ name: "pm2 maw", status: "warn", detail: "pm2 not available" });
   }
 
-  // 6. peers
+  // 6. peers — reconcile both config.peers (string[]) and config.namedPeers ({name,url}[])
   const config = loadConfig();
-  const peers = (config as any).peers || [];
-  if (peers.length === 0) {
+  const rawPeers: string[] = config.peers || [];
+  const namedPeers: { name: string; url: string }[] = config.namedPeers || [];
+  const allPeers: { label: string; url: string }[] = [
+    ...rawPeers.map(url => ({ label: url, url })),
+    ...namedPeers.map(p => ({ label: `${p.name} (${p.url})`, url: p.url })),
+  ];
+  if (allPeers.length === 0) {
     checks.push({ name: "peers", status: "none", detail: "none configured" });
   } else {
-    for (const peer of peers) {
+    for (const peer of allPeers) {
       try {
-        const r = await curlFetch(`${peer}/api/federation/status`, { timeout: cfgTimeout("health") });
-        checks.push({ name: `peer ${peer}`, status: r.ok ? "ok" : "warn", detail: r.ok ? "online" : `HTTP ${r.status}` });
+        const r = await curlFetch(`${peer.url}/api/federation/status`, { timeout: cfgTimeout("health") });
+        checks.push({ name: `peer ${peer.label}`, status: r.ok ? "ok" : "warn", detail: r.ok ? "online" : `HTTP ${r.status}` });
       } catch {
-        checks.push({ name: `peer ${peer}`, status: "fail", detail: "unreachable" });
+        checks.push({ name: `peer ${peer.label}`, status: "fail", detail: "unreachable" });
       }
     }
   }

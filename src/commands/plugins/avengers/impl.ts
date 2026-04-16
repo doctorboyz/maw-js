@@ -12,9 +12,7 @@ export async function cmdAvengers(sub: string) {
   const base = getAvengersUrl();
 
   if (!base) {
-    console.log(`\x1b[90mAvengers not configured. Add to maw.config.json:\x1b[0m`);
-    console.log(`\x1b[90m  "avengers": "http://white.local:8090"\x1b[0m`);
-    process.exit(1);
+    throw new Error(`Avengers not configured. Add to maw.config.json:\n  "avengers": "http://white.local:8090"`);
   }
 
   if (sub === "status" || sub === "all") {

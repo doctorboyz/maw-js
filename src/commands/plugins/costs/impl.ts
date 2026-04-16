@@ -9,13 +9,11 @@ export async function cmdCosts() {
     const res = await fetch(`${base}/api/costs`);
     data = await res.json();
   } catch {
-    console.error("\x1b[31merror\x1b[0m: cannot reach maw server — is `maw serve` running?");
-    process.exit(1);
+    throw new Error("cannot reach maw server — is `maw serve` running?");
   }
 
   if (data.error) {
-    console.error(`\x1b[31merror\x1b[0m: ${data.error}`);
-    process.exit(1);
+    throw new Error(data.error);
   }
 
   const { agents, total } = data;

@@ -22,8 +22,7 @@ export async function cmdArchive(oracleName: string, opts: { dryRun?: boolean } 
 
   const entry = entries.find(e => e.session.name.replace(/^\d+-/, "") === oracleName);
   if (!entry) {
-    console.error(`  \x1b[31m✗\x1b[0m oracle '${oracleName}' not found in fleet config`);
-    process.exit(1);
+    throw new Error(`oracle '${oracleName}' not found in fleet config`);
   }
 
   const mainWindow = entry.session.windows[0];

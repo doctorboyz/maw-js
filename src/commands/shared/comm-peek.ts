@@ -45,17 +45,23 @@ export async function cmdPeek(query?: string) {
   // Node prefix: "white:neo-maw-js" → peek remote agent via federation
   if (query && query.includes(":") && !query.includes("/")) {
     const [nodeName, agentName] = query.split(":", 2);
-    const peer = config.namedPeers?.find(p => p.name === nodeName);
-    const peerUrl = peer?.url || config.peers?.find(p => p.includes(nodeName));
-    if (peerUrl) {
-      const res = await curlFetch(`${peerUrl}/api/capture?target=${encodeURIComponent(agentName)}`);
-      if (res.ok && res.data?.content) {
-        console.log(`\x1b[36m--- ${query} (${nodeName}) ---\x1b[0m`);
-        console.log(res.data.content);
-        return;
+    const localNode = config.node || "local";
+    if (nodeName === localNode) {
+      // #362 — local node prefix: strip and fall through to local peek
+      query = agentName;
+    } else {
+      const peer = config.namedPeers?.find(p => p.name === nodeName);
+      const peerUrl = peer?.url || config.peers?.find(p => p.includes(nodeName));
+      if (peerUrl) {
+        const res = await curlFetch(`${peerUrl}/api/capture?target=${encodeURIComponent(agentName)}`);
+        if (res.ok && res.data?.content) {
+          console.log(`\x1b[36m--- ${nodeName}:${agentName} (${nodeName}) ---\x1b[0m`);
+          console.log(res.data.content);
+          return;
+        }
+        console.error(`\x1b[31merror\x1b[0m: capture failed for ${agentName} on ${nodeName}${res.data?.error ? `: ${res.data.error}` : ""}`);
+        process.exit(1);
       }
-      console.error(`\x1b[31merror\x1b[0m: capture failed for ${agentName} on ${nodeName}${res.data?.error ? `: ${res.data.error}` : ""}`);
-      process.exit(1);
     }
   }
 
