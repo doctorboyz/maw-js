@@ -17,6 +17,7 @@
       "--root": "boolean",
       "--blank": "boolean",
       "--split": "boolean",
+      "--seed": "boolean",
       "--dry-run": "boolean",
       "--tiny": "boolean",
       "--parent": "string",

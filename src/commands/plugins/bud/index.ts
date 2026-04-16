@@ -26,6 +26,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         "--root": Boolean,
         "--dry-run": Boolean,
         "--split": Boolean,
+        "--seed": Boolean,
         "--blank": Boolean,
         "--tiny": Boolean,
         "--parent": String,
@@ -34,7 +35,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
       const name = flags._[0];
       if (!name || name === "--help" || name === "-h") {
-        return { ok: false, error: "usage: maw bud <name> [--from <oracle>] [--root] [--blank] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--fast] [--split] [--dry-run]\n       maw bud <name> --tiny --parent <oracle>" };
+        return { ok: false, error: "usage: maw bud <name> [--from <oracle>] [--root] [--seed] [--org <org>] [--repo org/repo] [--issue N] [--note <text>] [--fast] [--split] [--dry-run]\n       maw bud <name> --tiny --parent <oracle>\n       Default: born blank. Use --seed to pre-load parent's ψ at birth.\n       Pull memory later: maw soul-sync <parent> --from" };
       }
       if (name.startsWith("-")) {
         return { ok: false, error: `"${name}" looks like a flag, not an oracle name.\n  usage: maw bud <name> ${args.join(" ")}` };
@@ -64,6 +65,7 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
           root: flags["--root"],
           dryRun: flags["--dry-run"],
           split: flags["--split"],
+          seed: flags["--seed"],
           blank: flags["--blank"],
         });
       }

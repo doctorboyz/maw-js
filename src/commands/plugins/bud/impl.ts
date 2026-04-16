@@ -20,9 +20,11 @@ export interface BudOpts {
   dryRun?: boolean;
   note?: string;
   split?: boolean;
-  /** Skip soul-sync seed from parent. Preserves lineage (parent in CLAUDE.md +
-   *  sync_peers) but starts with an empty memory. */
+  /** @deprecated Use --seed for explicit inheritance. Birth is blank by default now. */
   blank?: boolean;
+  /** Opt-in: pre-load parent's ψ at birth (bulk push). Default is blank — child
+   *  pulls memory later via `maw soul-sync <parent> --from` after /awaken. */
+  seed?: boolean;
 }
 
 export interface TinyBudOpts {
@@ -119,12 +121,12 @@ export async function cmdBud(name: string, opts: BudOpts = {}) {
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would init ψ/ vault at: ${budRepoPath}`);
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would generate CLAUDE.md`);
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would create fleet config`);
-    if (opts.blank) {
-      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] --blank: skipping soul-sync${parentName ? ` (lineage to ${parentName} preserved)` : ""}`);
+    if (opts.seed && parentName) {
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] --seed: would bulk soul-sync from ${parentName}`);
     } else if (parentName) {
-      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would soul-sync from ${parentName}`);
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] born blank — pull memory later: maw soul-sync ${parentName} --from`);
     } else {
-      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] root oracle — no soul-sync`);
+      console.log(`  \x1b[36m⬡\x1b[0m [dry-run] root oracle — no parent`);
     }
     console.log(`  \x1b[36m⬡\x1b[0m [dry-run] would wake ${name}`);
     if (parentName) {
@@ -278,18 +280,21 @@ Run \`/awaken\` for the full identity setup ceremony.
     console.log(`  \x1b[32m✓\x1b[0m birth note written`);
   }
 
-  // 5. Soul-sync seed from parent (skip for root buds or --blank)
-  if (opts.blank) {
-    console.log(`  \x1b[90m○\x1b[0m --blank: skipping soul-sync seed${parentName ? ` (lineage to ${parentName} preserved)` : ""}`);
-  } else if (parentName) {
-    console.log(`  \x1b[36m⏳\x1b[0m soul-sync seed from ${parentName}...`);
+  // 5. Soul-sync: consent-based model.
+  // Default: born blank — child pulls memory later via `maw soul-sync <parent> --from`.
+  // Opt-in: --seed explicitly requests bulk push from parent at birth.
+  // Legacy: --blank still accepted (no-op, birth is already blank by default).
+  if (opts.seed && parentName) {
+    console.log(`  \x1b[36m⏳\x1b[0m --seed: bulk soul-sync from ${parentName}...`);
     try {
       await cmdSoulSync(parentName, { from: true, cwd: budRepoPath });
     } catch {
       console.log(`  \x1b[33m⚠\x1b[0m soul-sync seed failed (parent may have empty ψ/)`);
     }
+  } else if (parentName) {
+    console.log(`  \x1b[90m○\x1b[0m born blank — pull memory when ready: maw soul-sync ${parentName} --from`);
   } else {
-    console.log(`  \x1b[90m○\x1b[0m root oracle — no soul-sync seed`);
+    console.log(`  \x1b[90m○\x1b[0m root oracle — no parent`);
   }
 
   // 6. Initial git commit + push
