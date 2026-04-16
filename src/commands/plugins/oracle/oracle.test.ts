@@ -47,4 +47,17 @@ describe("oracle plugin", () => {
     expect(result.ok).toBe(true);
     expect(result.output).toContain("Oracle — neo");
   });
+
+  // Behavior #7: fleet deprecation alias
+  // After redesign: `maw oracle fleet` shows a deprecation warning and delegates to ls.
+  // Both the warning AND "Oracle Fleet" (from cmdOracleList mock) should appear in output.
+  // Will fail until oracle-ls-impl ships the dispatcher change. -- alpha.53
+  it("cli: fleet → deprecation warning appears alongside ls output", async () => {
+    const result = await handler({ source: "cli", args: ["fleet"] });
+    expect(result.ok).toBe(true);
+    // Oracle Fleet still appears (from cmdOracleList being called)
+    expect(result.output).toContain("Oracle Fleet");
+    // Deprecation notice is emitted (console.error captured in output)
+    expect(result.output).toMatch(/deprecat|alias|use.*ls|fleet.*ls/i);
+  });
 });

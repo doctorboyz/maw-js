@@ -1,4 +1,4 @@
-import { listSessions, hostExec, FLEET_DIR } from "../../../sdk";
+import { listSessions, hostExec, FLEET_DIR, type OracleEntry } from "../../../sdk";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
@@ -55,6 +55,32 @@ export interface OracleStatus {
   windows: string[];
   worktrees: number;
   status: "awake" | "sleeping";
+}
+
+/**
+ * Source-lineage for an oracle entry — "why is this in the list?"
+ * Drives the icon column in the grouped `ls` view.
+ */
+export interface OracleLineage {
+  hasFleetConfig: boolean;   // ~/.config/maw/fleet/<name>.json exists
+  hasPsi: boolean;           // <repo>/ψ exists
+  isAwake: boolean;          // tmux session running
+  inAgents: boolean;         // appears in config.agents
+  federationNode?: string;   // from config.agents (or entry's federation_node)
+}
+
+export function lineageOf(
+  entry: OracleEntry,
+  awake: boolean,
+  agents: Record<string, string>,
+): OracleLineage {
+  return {
+    hasFleetConfig: entry.has_fleet_config,
+    hasPsi: entry.has_psi,
+    isAwake: awake,
+    inAgents: entry.name in agents,
+    federationNode: agents[entry.name] ?? entry.federation_node ?? undefined,
+  };
 }
 
 export function timeSince(iso: string): string {
