@@ -12,6 +12,7 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
   oracle = normalizeTarget(oracle);
   // #358 — reject -view suffix at the user-input boundary (before any session work).
   assertValidOracleName(oracle);
+  console.log(`\x1b[36m⚡\x1b[0m resolving ${oracle}...`);
   let resolved: { repoPath: string; repoName: string; parentDir: string };
 
   if (opts.incubate) {
@@ -29,7 +30,10 @@ export async function cmdWake(oracle: string, opts: { task?: string; newWt?: str
   }
 
   const { repoPath, repoName, parentDir } = resolved;
+  console.log(`\x1b[36m→\x1b[0m found ${repoPath}`);
   let session = await detectSession(oracle);
+  if (session) console.log(`\x1b[36m→\x1b[0m session exists: ${session}`);
+  else console.log(`\x1b[36m→\x1b[0m no session found, creating...`);
 
   if (!session) {
     session = getSessionMap()[oracle] || resolveFleetSession(oracle) || oracle;

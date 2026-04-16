@@ -53,9 +53,10 @@ export async function cmdList() {
   }
 
   // Detect orphaned worktree directories (on disk but no tmux window)
+  let orphans: Awaited<ReturnType<typeof scanWorktrees>> = [];
   try {
     const worktrees = await scanWorktrees();
-    const orphans = worktrees.filter(wt => wt.status === "stale" || wt.status === "orphan");
+    orphans = worktrees.filter(wt => wt.status === "stale" || wt.status === "orphan");
     if (orphans.length > 0) {
       console.log("");
       for (const wt of orphans) {
@@ -63,6 +64,14 @@ export async function cmdList() {
         const label = wt.status === "orphan" ? "orphaned (prunable)" : "no tmux window";
         console.log(`  \x1b[33m⚠ orphaned:\x1b[0m ${dirName} \x1b[90m(${label})\x1b[0m`);
       }
+      console.log("");
+      console.log(`\x1b[90m  → maw ls --fix       to prune orphans\x1b[0m`);
     }
   } catch { /* worktree scan failed — non-critical */ }
+
+  if (sessions.length === 0 && orphans.length === 0) {
+    console.log("\x1b[90mNo active sessions.\x1b[0m");
+    console.log("\x1b[90m  → maw bud <name>     create new oracle\x1b[0m");
+    console.log("\x1b[90m  → maw wake <name>    attach existing\x1b[0m");
+  }
 }

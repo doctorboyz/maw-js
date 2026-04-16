@@ -1,7 +1,7 @@
 /** Runtime helpers: SDK version resolution, hash verification, dev-mode detection. */
 
 import { createHash } from "crypto";
-import { existsSync, lstatSync, readFileSync } from "fs";
+import { existsSync, lstatSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { warn } from "../cli/verbosity";
@@ -61,19 +61,62 @@ export function isDevModeInstall(pluginDir: string): boolean {
 
 // ─── Legacy-manifest one-shot warning ────────────────────────────────────────
 
+const WARN_THROTTLE_MS = 3_600_000; // 1 hour
+
+// Resolved lazily so MAW_WARN_STATE_FILE env var can redirect the path (e.g. in tests).
+function warnStatePath(): string {
+  return process.env.MAW_WARN_STATE_FILE
+    || join(homedir(), ".config", "maw", "session-warnings.state");
+}
+
+// Test-only bypass: set by __resetDiscoverStateForTests to skip the hourly
+// throttle without touching the real state file on disk.
+let _bypassWarnThrottle = false;
+
+function shouldShowLegacyWarning(): boolean {
+  if (_bypassWarnThrottle) return true;
+  try {
+    const stateFile = warnStatePath();
+    if (!existsSync(stateFile)) return true;
+    const raw = readFileSync(stateFile, "utf8");
+    const state = JSON.parse(raw) as { "legacy-plugin-warning"?: { lastShownMs?: number } };
+    const lastShownMs = state["legacy-plugin-warning"]?.lastShownMs ?? 0;
+    return Date.now() - lastShownMs > WARN_THROTTLE_MS;
+  } catch {
+    return true; // corrupt state — show the warning
+  }
+}
+
+function markLegacyWarningShown(): void {
+  if (_bypassWarnThrottle) return; // don't persist during tests
+  try {
+    const stateFile = warnStatePath();
+    const dir = join(stateFile, "..");
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    let state: Record<string, unknown> = {};
+    if (existsSync(stateFile)) {
+      try { state = JSON.parse(readFileSync(stateFile, "utf8")); } catch { /* corrupt — start fresh */ }
+    }
+    state["legacy-plugin-warning"] = { lastShownMs: Date.now() };
+    writeFileSync(stateFile, JSON.stringify(state), "utf8");
+  } catch { /* non-critical — ignore write errors */ }
+}
+
 let _warnedLegacy = false;
 export function warnLegacyOnce(count: number): void {
   if (_warnedLegacy) return;
   _warnedLegacy = true;
-  if (count > 0) {
+  if (count > 0 && shouldShowLegacyWarning()) {
     warn(
       `${count} legacy plugin${count === 1 ? "" : "s"} loaded without artifact hash — build them to enforce integrity.`,
     );
+    markLegacyWarningShown();
   }
 }
 
 /** Test-only: reset cached module state (legacy-warn latch + SDK version cache). */
 export function __resetDiscoverStateForTests(): void {
   _warnedLegacy = false;
+  _bypassWarnThrottle = true; // skip hourly throttle in test runs
   _runtimeSdkVersion = null;
 }

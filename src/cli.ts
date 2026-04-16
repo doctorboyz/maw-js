@@ -295,6 +295,19 @@ if (cmd === "--version" || cmd === "-v" || cmd === "version") {
         }
       }
       if (matched) { /* unreachable — kept for clarity */ }
+      // Check for likely mistyped short commands before falling through to agent shorthand.
+      // Heuristic: single arg, length <= 3, no hyphen (agent names are longer or hyphenated).
+      // This catches `maw a`, `maw ls` typos, etc. without breaking `maw neo "hello"`.
+      if (args.length === 1 && args[0].length <= 3 && !/[a-z]+-[a-z]+/.test(args[0])) {
+        const knownCommands = plugins
+          .map(p => p.manifest.cli?.command)
+          .filter((c): c is string => Boolean(c));
+        const suggestion = knownCommands.find(c => c.startsWith(args[0]));
+        if (suggestion) {
+          console.error(`\x1b[31munknown command\x1b[0m: '${args[0]}' — did you mean '${suggestion}'?`);
+          process.exit(1);
+        }
+      }
       // Default: agent name shorthand (maw <agent> <msg> or maw <agent>)
       if (args.length >= 2) {
         const f = args.includes("--force");
