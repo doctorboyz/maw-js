@@ -14,6 +14,7 @@ import {
   justHost,
   buildTunnelCommand,
 } from "./impl-helpers";
+import { parseFlags } from "../../../cli/parse-args";
 
 /**
  * Render the full output that `maw ui` prints, given the parsed options.
@@ -103,15 +104,24 @@ export function renderUiOutput(opts: UiOptions): string {
 // ---- Arg parser ----------------------------------------------------------
 
 export function parseUiArgs(args: string[]): UiOptions {
-  const opts: UiOptions = {};
-  for (const a of args) {
-    if (a === "--install") opts.install = true;
-    else if (a === "--tunnel") opts.tunnel = true;
-    else if (a === "--dev") opts.dev = true;
-    else if (a === "--3d") opts.threeD = true;
-    else if (!a.startsWith("--") && !opts.peer) opts.peer = a;
-  }
-  return opts;
+  const flags = parseFlags(args, {
+    "--install": Boolean,
+    "--tunnel": Boolean,
+    "--dev": Boolean,
+    "--3d": Boolean,
+  }, 0);
+
+  // permissive mode puts unknown flags into _ too;
+  // peer must be first non-flag positional
+  const peer = flags._.find((a: string) => !a.startsWith("--"));
+
+  return {
+    peer,
+    install: flags["--install"],
+    tunnel: flags["--tunnel"],
+    dev: flags["--dev"],
+    threeD: flags["--3d"],
+  };
 }
 
 // ---- Public entry --------------------------------------------------------

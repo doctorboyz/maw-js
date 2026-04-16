@@ -1,4 +1,5 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
+import { parseFlags } from "../../../cli/parse-args";
 
 export const command = {
   name: "pulse",
@@ -23,14 +24,18 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const subcmd = args[0];
 
     if (subcmd === "add") {
-      const pulseOpts: { oracle?: string; priority?: string; wt?: string } = {};
-      let title = "";
-      for (let i = 1; i < args.length; i++) {
-        if (args[i] === "--oracle" && args[i + 1]) { pulseOpts.oracle = args[++i]; }
-        else if (args[i] === "--priority" && args[i + 1]) { pulseOpts.priority = args[++i]; }
-        else if ((args[i] === "--wt" || args[i] === "--worktree") && args[i + 1]) { pulseOpts.wt = args[++i]; }
-        else if (!title) { title = args[i]; }
-      }
+      const flags = parseFlags(args.slice(1), {
+        "--oracle": String,
+        "--priority": String,
+        "--wt": String,
+        "--worktree": "--wt",
+      }, 0);
+      const title = flags._.find(a => !a.startsWith("--")) ?? "";
+      const pulseOpts = {
+        oracle: flags["--oracle"],
+        priority: flags["--priority"],
+        wt: flags["--wt"],
+      };
       if (!title) {
         return {
           ok: false,

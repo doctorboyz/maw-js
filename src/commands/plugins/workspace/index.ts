@@ -1,10 +1,36 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
+import { parseFlags } from "../../../cli/parse-args";
 import { cmdWorkspaceCreate, cmdWorkspaceJoin, cmdWorkspaceShare, cmdWorkspaceUnshare, cmdWorkspaceLs, cmdWorkspaceAgents, cmdWorkspaceInvite, cmdWorkspaceLeave, cmdWorkspaceStatus } from "../../shared/workspace";
 
 export const command = {
   name: ["workspace", "ws"],
   description: "Multi-node workspace management.",
 };
+
+// ---------------------------------------------------------------------------
+// Pure parsing helpers — exported for golden-master tests
+// ---------------------------------------------------------------------------
+
+/** Parse args for `workspace create <name> [--hub <url>]` */
+export function _parseCreate(args: string[]): { name: string | undefined; hub: string | undefined } {
+  const flags = parseFlags(args.slice(1), { "--hub": String }, 0);
+  return { name: flags._[0] || undefined, hub: flags["--hub"] };
+}
+
+/** Parse args for `workspace join <code> [--hub <url>]` */
+export function _parseJoin(args: string[]): { code: string | undefined; hub: string | undefined } {
+  const flags = parseFlags(args.slice(1), { "--hub": String }, 0);
+  return { code: flags._[0] || undefined, hub: flags["--hub"] };
+}
+
+/** Parse args for `workspace share/unshare [--workspace <id>] [--ws <id>] <agent...>` */
+export function _parseShareAgents(args: string[]): { wsId: string | undefined; agents: string[] } {
+  const flags = parseFlags(args.slice(1), {
+    "--workspace": String,
+    "--ws": "--workspace",
+  }, 0);
+  return { wsId: flags["--workspace"], agents: flags._ };
+}
 
 export default async function handler(ctx: InvokeContext): Promise<InvokeResult> {
   const logs: string[] = [];
@@ -23,44 +49,28 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
     const sub = args[0]?.toLowerCase();
 
     if (sub === "create") {
-      if (!args[1]) {
+      const { name, hub } = _parseCreate(args);
+      if (!name) {
         logs.push("usage: maw workspace create <name> [--hub <url>]");
         return { ok: false, error: "name required", output: logs.join("\n") };
       }
-      let hub: string | undefined;
-      for (let i = 2; i < args.length; i++) {
-        if (args[i] === "--hub" && args[i + 1]) { hub = args[++i]; }
-      }
-      await cmdWorkspaceCreate(args[1], hub);
+      await cmdWorkspaceCreate(name, hub);
     } else if (sub === "join") {
-      if (!args[1]) {
+      const { code, hub } = _parseJoin(args);
+      if (!code) {
         logs.push("usage: maw workspace join <code> [--hub <url>]");
         return { ok: false, error: "code required", output: logs.join("\n") };
       }
-      let hub: string | undefined;
-      for (let i = 2; i < args.length; i++) {
-        if (args[i] === "--hub" && args[i + 1]) { hub = args[++i]; }
-      }
-      await cmdWorkspaceJoin(args[1], hub);
+      await cmdWorkspaceJoin(code, hub);
     } else if (sub === "share") {
-      const agents: string[] = [];
-      let wsId: string | undefined;
-      for (let i = 1; i < args.length; i++) {
-        if ((args[i] === "--workspace" || args[i] === "--ws") && args[i + 1]) { wsId = args[++i]; }
-        else agents.push(args[i]);
-      }
+      const { wsId, agents } = _parseShareAgents(args);
       if (agents.length === 0) {
         logs.push("usage: maw workspace share <agent...> [--workspace <id>]");
         return { ok: false, error: "agent required", output: logs.join("\n") };
       }
       await cmdWorkspaceShare(agents, wsId);
     } else if (sub === "unshare") {
-      const agents: string[] = [];
-      let wsId: string | undefined;
-      for (let i = 1; i < args.length; i++) {
-        if ((args[i] === "--workspace" || args[i] === "--ws") && args[i + 1]) { wsId = args[++i]; }
-        else agents.push(args[i]);
-      }
+      const { wsId, agents } = _parseShareAgents(args);
       if (agents.length === 0) {
         logs.push("usage: maw workspace unshare <agent...> [--workspace <id>]");
         return { ok: false, error: "agent required", output: logs.join("\n") };

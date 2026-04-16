@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { loadConfig } from "../../../config";
+import { parseFlags } from "../../../cli/parse-args";
 
 interface Contact {
   maw?: string;
@@ -58,13 +59,18 @@ export async function cmdContactsLs() {
 export async function cmdContactsAdd(name: string, args: string[]) {
   const data = loadContacts();
   const c: Contact = data.contacts[name] || {};
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--maw" && args[i + 1]) c.maw = args[++i];
-    else if (args[i] === "--thread" && args[i + 1]) c.thread = args[++i];
-    else if (args[i] === "--inbox" && args[i + 1]) c.inbox = args[++i];
-    else if (args[i] === "--repo" && args[i + 1]) c.repo = args[++i];
-    else if (args[i] === "--notes" && args[i + 1]) c.notes = args[++i];
-  }
+  const flags = parseFlags(args, {
+    "--maw": String,
+    "--thread": String,
+    "--inbox": String,
+    "--repo": String,
+    "--notes": String,
+  }, 0);
+  if (flags["--maw"]) c.maw = flags["--maw"];
+  if (flags["--thread"]) c.thread = flags["--thread"];
+  if (flags["--inbox"]) c.inbox = flags["--inbox"];
+  if (flags["--repo"]) c.repo = flags["--repo"];
+  if (flags["--notes"]) c.notes = flags["--notes"];
   if (c.retired) delete c.retired;
   data.contacts[name] = c;
   saveContacts(data);

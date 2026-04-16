@@ -25,12 +25,10 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
 
     if (ctx.source === "cli") {
       const args = ctx.args as string[];
-      // Note: --meta is repeatable (key=val each time). parseFlags gives us
-      // only the last one, so scan raw args to collect all --meta values.
       const flags = parseFlags(args, {
         "--pane": Number,
         "--title": String,
-        "--meta": String,
+        "--meta": [String],
       }, 0);
 
       target = flags._[0];
@@ -41,19 +39,10 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
         return { ok: false, error: `"${target}" looks like a flag, not a target.\n  usage: maw tag <target> ...` };
       }
 
-      // Collect repeated --meta flags from raw args (parseFlags keeps only last).
-      const allMeta: string[] = [];
-      for (let i = 0; i < args.length; i++) {
-        if (args[i] === "--meta" && i + 1 < args.length) {
-          allMeta.push(args[i + 1]!);
-          i++;
-        }
-      }
-
       opts = {
         pane: flags["--pane"],
         title: flags["--title"],
-        meta: allMeta.length > 0 ? allMeta : undefined,
+        meta: flags["--meta"],
       };
     } else {
       const body = ctx.args as Record<string, unknown>;
