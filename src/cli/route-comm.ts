@@ -16,7 +16,7 @@ export async function routeComm(cmd: string, args: string[]): Promise<boolean> {
     if (!target) {
       console.error("usage: maw hey <target> <message> [--force]");
       console.error("  target forms:");
-      console.error("    <agent>                      bare name, resolves on local node");
+      console.error("    <agent>                      bare name (exact local match, errors on ambiguity)");
       console.error("    <node>:<session>             canonical cross-node form (window 1)");
       console.error("    <node>:<session>:<window>    target a specific tmux window (#410)");
       console.error("  e.g. maw hey mawjs \"hello from neo\"");

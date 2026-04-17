@@ -76,7 +76,7 @@ export async function cmdSend(query: string, message: string, force = false) {
   // scripts should use the prefixed form for fleet portability. Silent when
   // MAW_QUIET=1.
   if (!query.includes(":") && !query.includes("/") && !process.env.MAW_QUIET && config.node) {
-    console.error(`\x1b[90mℹ tip: use canonical form 'maw hey ${config.node}:${query}' for cross-node scripts — append ':<window>' to target a specific window (bare name resolves locally)\x1b[0m`);
+    console.error(`\x1b[90mℹ tip: use canonical form 'maw hey ${config.node}:${query}' for cross-node scripts — append ':<window>' to target a specific window (bare name = exact match locally; errors on ambiguity)\x1b[0m`);
   }
 
   // --- Plugin routing: maw hey plugin:<name> <msg> ---
