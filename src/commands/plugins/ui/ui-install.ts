@@ -15,12 +15,32 @@
  */
 
 import { spawnSync } from "child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir, tmpdir } from "os";
 
 const REPO = "Soul-Brews-Studio/maw-ui";
 const DIST_DIR = join(homedir(), ".maw", "ui", "dist");
+const VERSION_MARKER = ".maw-ui-version";
+
+/**
+ * Resolve the installed maw-ui version by checking, in order:
+ *   1. `.maw-ui-version` marker file written at install time (authoritative)
+ *   2. `data-maw-ui-version="..."` attribute on index.html (legacy fallback)
+ * Returns null if neither source yields a value. Pure: only reads from disk.
+ */
+export function resolveInstalledVersion(distDir: string): string | null {
+  try {
+    const marker = readFileSync(join(distDir, VERSION_MARKER), "utf-8").trim();
+    if (marker) return marker;
+  } catch { /* no marker — fall through */ }
+  try {
+    const indexHtml = readFileSync(join(distDir, "index.html"), "utf-8");
+    const m = indexHtml.match(/data-maw-ui-version="([^"]+)"/);
+    if (m) return m[1];
+  } catch { /* no index.html — fall through */ }
+  return null;
+}
 
 /**
  * Pure helper — returns the `gh` CLI args for downloading a release asset.
@@ -71,6 +91,16 @@ export async function cmdUiInstall(version?: string): Promise<void> {
       throw new Error(`no files extracted to ${DIST_DIR}`);
     }
 
+    // Write a version marker so `maw ui status` can report the real version.
+    // If ref was undefined ("latest"), resolve the actual tag via gh so the
+    // marker matches what was downloaded rather than the word "latest".
+    let markerRef = version;
+    if (!markerRef) {
+      const tagLookup = spawnSync("gh", ["release", "view", "-R", REPO, "--json", "tagName", "-q", ".tagName"], { encoding: "utf-8" });
+      if (tagLookup.status === 0) markerRef = tagLookup.stdout.trim();
+    }
+    if (markerRef) writeFileSync(join(DIST_DIR, VERSION_MARKER), markerRef + "\n");
+
     console.log(`✓ maw-ui ${displayRef} installed → ${DIST_DIR} (${files.length} top-level entries)`);
     console.log(`  → restart maw server to serve the new UI: pm2 restart maw OR maw serve`);
   } finally {
@@ -86,16 +116,8 @@ export async function cmdUiStatus(): Promise<void> {
   }
 
   const files = readdirSync(DIST_DIR);
-  let version = "unknown";
-  try {
-    const indexHtml = readFileSync(join(DIST_DIR, "index.html"), "utf-8");
-    const m = indexHtml.match(/data-maw-ui-version="([^"]+)"/);
-    if (m) version = m[1];
-  } catch {
-    /* ignore — index.html may not carry version metadata */
-  }
-
-  const versionStr = version === "unknown" ? "(version unknown)" : `v${version}`;
+  const version = resolveInstalledVersion(DIST_DIR);
+  const versionStr = version ? (version.startsWith("v") ? version : `v${version}`) : "(version unknown)";
   console.log(`✓ maw-ui ${versionStr} at ${DIST_DIR}`);
   console.log(`  ${files.length} top-level entries`);
 }

@@ -7,7 +7,10 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { buildGhReleaseArgs } from "../src/commands/plugins/ui/ui-install";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
+import { buildGhReleaseArgs, resolveInstalledVersion } from "../src/commands/plugins/ui/ui-install";
 import { parseUiArgs } from "../src/commands/plugins/ui/impl";
 
 // ---- buildGhReleaseArgs — gh release download command construction --------
@@ -53,6 +56,54 @@ describe("buildGhReleaseArgs", () => {
     const args = buildGhReleaseArgs("my-org/my-ui", "v2.0.0", "/tmp/x");
     expect(args[args.indexOf("-R") + 1]).toBe("my-org/my-ui");
     expect(args[2]).toBe("v2.0.0");
+  });
+});
+
+// ---- resolveInstalledVersion — version resolution for `maw ui status` ---
+
+describe("resolveInstalledVersion", () => {
+  function mkDist(): string {
+    return mkdtempSync(join(tmpdir(), "maw-ui-ver-"));
+  }
+
+  test("returns null when neither marker nor index.html exists", () => {
+    const d = mkDist();
+    try {
+      expect(resolveInstalledVersion(d)).toBeNull();
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  });
+
+  test("reads version from .maw-ui-version marker (preferred source)", () => {
+    const d = mkDist();
+    try {
+      writeFileSync(join(d, ".maw-ui-version"), "v1.15.0\n");
+      expect(resolveInstalledVersion(d)).toBe("v1.15.0");
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  });
+
+  test("marker wins over index.html data attribute", () => {
+    const d = mkDist();
+    try {
+      writeFileSync(join(d, ".maw-ui-version"), "v2.0.0\n");
+      writeFileSync(join(d, "index.html"), `<html data-maw-ui-version="0.9.0"></html>`);
+      expect(resolveInstalledVersion(d)).toBe("v2.0.0");
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  });
+
+  test("falls back to data-maw-ui-version in index.html when no marker", () => {
+    const d = mkDist();
+    try {
+      writeFileSync(join(d, "index.html"), `<html data-maw-ui-version="1.15.0"></html>`);
+      expect(resolveInstalledVersion(d)).toBe("1.15.0");
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  });
+
+  test("empty marker file falls through to index.html / null", () => {
+    const d = mkDist();
+    try {
+      writeFileSync(join(d, ".maw-ui-version"), "   \n");
+      expect(resolveInstalledVersion(d)).toBeNull();
+    } finally { rmSync(d, { recursive: true, force: true }); }
   });
 });
 
