@@ -19,7 +19,7 @@
  *  4. Legacy manifests (no artifact field) still load — warn once, allow.
  */
 
-import { existsSync, readdirSync } from "fs";
+import { existsSync, readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { loadManifestFromDir } from "./manifest";
 import { loadConfig } from "../config";
@@ -179,6 +179,17 @@ export function discoverPackages(): LoadedPlugin[] {
   });
 
   warnLegacyOnce(legacyCount);
+
+  // #404 — apply weight overrides so category survives `install --link` replaces
+  // where the new plugin.json omitted `weight`.
+  const overridesPath = join(scanDirs()[0]!, ".overrides.json");
+  try {
+    const overrides = JSON.parse(readFileSync(overridesPath, "utf8")) as Record<string, number>;
+    for (const p of plugins) {
+      const w = overrides[p.manifest.name];
+      if (typeof w === "number") p.manifest.weight = w;
+    }
+  } catch { /* absent or unreadable */ }
 
   // Sort by weight (lower = first, default 50) — like Drupal module weight
   plugins.sort((a, b) => (a.manifest.weight ?? 50) - (b.manifest.weight ?? 50));

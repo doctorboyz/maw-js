@@ -197,6 +197,36 @@ describe("cmdPluginInstall — dir source", () => {
     expect(exitCode).toBe(1);
     expect(stderr).toContain("usage:");
   });
+
+  test("#404 — preserve category on replace when new plugin.json omits weight", async () => {
+    // Install A with weight=5 (core tier).
+    const a = buildFixture({ version: "0.1.0" });
+    const aManifest = JSON.parse(readFileSync(join(a.dir, "plugin.json"), "utf8"));
+    aManifest.weight = 5;
+    writeFileSync(join(a.dir, "plugin.json"), JSON.stringify(aManifest, null, 2));
+    await capture(() => cmdPluginInstall([a.dir]));
+
+    // Replace with B — same name, no weight → would default to 50 (extra).
+    const b = buildFixture({ version: "0.2.0" });
+    await capture(() => cmdPluginInstall([b.dir, "--force"]));
+
+    // Override file stores the preserved weight.
+    const overrides = JSON.parse(readFileSync(join(pluginsDir(), ".overrides.json"), "utf8"));
+    expect(overrides.hello).toBe(5);
+
+    // Loader applies the override so manifest.weight remains 5.
+    const loaded = discoverPackages().find(p => p.manifest.name === "hello");
+    expect(loaded?.manifest.weight).toBe(5);
+  });
+
+  test("#404 — --category flag overrides preserved weight", async () => {
+    await capture(() => cmdPluginInstall([buildFixture({ version: "0.1.0" }).dir]));
+    await capture(() => cmdPluginInstall([
+      buildFixture({ version: "0.2.0" }).dir, "--force", "--category", "core",
+    ]));
+    const overrides = JSON.parse(readFileSync(join(pluginsDir(), ".overrides.json"), "utf8"));
+    expect(overrides.hello).toBe(5);
+  });
 });
 
 // ─── cmdPluginInstall — tarball ──────────────────────────────────────────────

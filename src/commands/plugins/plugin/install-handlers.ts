@@ -3,7 +3,7 @@
  * installFromDir / installFromTarball / installFromUrl
  */
 
-import { existsSync, lstatSync, mkdtempSync, readlinkSync, rmSync, statSync, symlinkSync } from "fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { basename, join } from "path";
@@ -11,6 +11,30 @@ import { formatSdkMismatchError, runtimeSdkVersion, satisfies } from "../../../p
 import { installRoot, removeExisting } from "./install-source-detect";
 import { extractTarball, downloadTarball, verifyArtifactHash } from "./install-extraction";
 import { readManifest, printInstallSuccess } from "./install-manifest-helpers";
+
+/**
+ * #404 — preserve category across replace. Category is derived from `weight`
+ * (core <10, standard <50, extra >=50). When `install --link` replaces a
+ * plugin whose new plugin.json omits `weight`, the default-50 would silently
+ * reclassify it. Before removing the prior install we capture its weight
+ * into ~/.maw/plugins/.overrides.json, where the loader picks it up so the
+ * category is preserved. An explicit `weight` on the incoming manifest
+ * always wins; an `explicit` weight (e.g. --category flag) always wins.
+ */
+function preserveWeightOnReplace(
+  name: string, incoming: number | undefined, dest: string, explicit?: number,
+): void {
+  const path = join(installRoot(), ".overrides.json");
+  let overrides: Record<string, number> = {};
+  try { overrides = JSON.parse(readFileSync(path, "utf8")); } catch { /* absent or corrupt */ }
+  let effective = explicit;
+  if (effective === undefined && incoming === undefined) {
+    try { effective = readManifest(dest)?.weight; } catch { /* no prior manifest */ }
+  }
+  if (effective !== undefined) overrides[name] = effective;
+  else if (incoming !== undefined) delete overrides[name]; // incoming is explicit → drop stale override
+  writeFileSync(path, JSON.stringify(overrides, null, 2) + "\n", "utf8");
+}
 
 /**
  * #403 Bug — refuse to overwrite an existing install unless --force.
@@ -34,7 +58,10 @@ function refuseExistingInstall(dest: string, incoming: string, name: string): ne
   );
 }
 
-export async function installFromDir(srcDir: string, opts: { force?: boolean } = {}): Promise<void> {
+export async function installFromDir(
+  srcDir: string,
+  opts: { force?: boolean; weight?: number } = {},
+): Promise<void> {
   if (!existsSync(srcDir)) {
     throw new Error(`source not found: ${srcDir}`);
   }
@@ -57,6 +84,12 @@ export async function installFromDir(srcDir: string, opts: { force?: boolean } =
     refuseExistingInstall(dest, srcDir, manifest!.name);
   }
 
+  // #404 — capture prior weight before the replace so category survives.
+  const replacing = existsSync(dest);
+  if (replacing || opts.weight !== undefined) {
+    preserveWeightOnReplace(manifest!.name, manifest!.weight, dest, opts.weight);
+  }
+
   removeExisting(dest);
   symlinkSync(srcDir, dest, "dir");
 
@@ -65,7 +98,7 @@ export async function installFromDir(srcDir: string, opts: { force?: boolean } =
 
 export async function installFromTarball(
   tarballPath: string,
-  opts: { source: string; force?: boolean },
+  opts: { source: string; force?: boolean; weight?: number },
 ): Promise<void> {
   if (!existsSync(tarballPath)) {
     throw new Error(`tarball not found: ${tarballPath}`);
@@ -107,6 +140,11 @@ export async function installFromTarball(
     refuseExistingInstall(dest, opts.source, manifest!.name);
   }
 
+  // #404 — capture prior weight before the replace so category survives.
+  if (existsSync(dest) || opts.weight !== undefined) {
+    preserveWeightOnReplace(manifest!.name, manifest!.weight, dest, opts.weight);
+  }
+
   removeExisting(dest);
   // Use rename when the staging dir is on the same fs; otherwise copy-then-rm.
   try {
@@ -127,13 +165,16 @@ export async function installFromTarball(
   );
 }
 
-export async function installFromUrl(url: string, opts: { force?: boolean } = {}): Promise<void> {
+export async function installFromUrl(
+  url: string,
+  opts: { force?: boolean; weight?: number } = {},
+): Promise<void> {
   const dl = await downloadTarball(url);
   if (!dl.ok) {
     throw new Error(dl.error);
   }
   try {
-    await installFromTarball(dl.path, { source: url, force: opts.force });
+    await installFromTarball(dl.path, { source: url, force: opts.force, weight: opts.weight });
   } finally {
     // Clean up the downloaded temp file.
     try {

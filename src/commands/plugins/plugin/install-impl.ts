@@ -42,24 +42,35 @@ export { installFromDir, installFromTarball, installFromUrl } from "./install-ha
  * args after the "install" verb (i.e. args = ["./hello/", "--link"] or
  * similar). Matches the convention of sibling init-impl.ts / build-impl.ts.
  */
+const CATEGORY_WEIGHT: Record<string, number> = { core: 5, standard: 30, extra: 70 };
+
 export async function cmdPluginInstall(args: string[]): Promise<void> {
-  const flags = parseFlags(args, { "--link": Boolean, "--force": Boolean }, 0);
+  const flags = parseFlags(
+    args,
+    { "--link": Boolean, "--force": Boolean, "--category": String },
+    0,
+  );
   const src = flags._[0];
 
   if (!src || src === "--help" || src === "-h") {
-    throw new Error("usage: maw plugin install <dir | .tgz | URL> [--link] [--force]");
+    throw new Error("usage: maw plugin install <dir | .tgz | URL> [--link] [--force] [--category core|standard|extra]");
   }
 
   ensureInstallRoot();
   const mode = detectMode(src);
   const force = !!flags["--force"];
+  const cat = flags["--category"] as string | undefined;
+  if (cat !== undefined && !(cat in CATEGORY_WEIGHT)) {
+    throw new Error(`--category must be one of: core, standard, extra (got ${JSON.stringify(cat)})`);
+  }
+  const weight = cat !== undefined ? CATEGORY_WEIGHT[cat] : undefined;
 
   // Dispatch on source type.
   if (mode.kind === "dir") {
-    await installFromDir(mode.src, { force });
+    await installFromDir(mode.src, { force, weight });
   } else if (mode.kind === "tarball") {
-    await installFromTarball(mode.src, { source: `./${basename(mode.src)}`, force });
+    await installFromTarball(mode.src, { source: `./${basename(mode.src)}`, force, weight });
   } else {
-    await installFromUrl(mode.src, { force });
+    await installFromUrl(mode.src, { force, weight });
   }
 }
