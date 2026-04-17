@@ -1,5 +1,6 @@
 import { Elysia, t} from "elysia";
 import { listSessions, capture, sendKeys, selectWindow } from "../core/transport/ssh";
+import { checkPaneIdle } from "../commands/shared/comm-send";
 import { findWindow } from "../core/runtime/find-window";
 import { getAggregatedSessions, findPeerForTarget, sendKeysToPeer } from "../core/transport/peers";
 import { loadConfig } from "../config";
@@ -73,7 +74,7 @@ sessionsApi.get("/mirror", async ({ query, set}) => {
 
 sessionsApi.post("/send", async ({ body, set}) => {
   try {
-    const { target, text } = body;
+    const { target, text, force } = body;
 
     const config = loadConfig();
     const local = await listSessions();
@@ -89,6 +90,18 @@ sessionsApi.post("/send", async ({ body, set}) => {
 
     // Local or self-node → send via tmux
     if (resolved?.type === "local" || resolved?.type === "self-node") {
+      // #405: idle guard — reject if user has in-progress input on the prompt line
+      if (!force) {
+        let idleCheck = await checkPaneIdle(resolved.target);
+        if (!idleCheck.idle) {
+          await Bun.sleep(500);
+          idleCheck = await checkPaneIdle(resolved.target);
+          if (!idleCheck.idle) {
+            set.status = 409;
+            return { ok: false, error: "pane not idle", target: resolved.target, lastInput: idleCheck.lastInput };
+          }
+        }
+      }
       await sendKeys(resolved.target, text);
       await Bun.sleep(150);
       let lastLine = "";

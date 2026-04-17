@@ -67,6 +67,32 @@ export function resolveMyName(config: ReturnType<typeof loadConfig>): string {
   return config.node || "cli";
 }
 
+/**
+ * Check if a pane is idle — i.e., no user input is in progress on the prompt line.
+ * Uses capture-pane to inspect the last visible line. If a shell prompt marker
+ * ($, %, >, ❯, #) is followed by non-whitespace text, the user is mid-input.
+ * Errors and non-shell panes (running agent) conservatively return idle=true.
+ * (#405 — idle guard before send-keys)
+ */
+export async function checkPaneIdle(target: string, host?: string): Promise<{ idle: boolean; lastInput: string }> {
+  try {
+    const content = await capture(target, 5, host);
+    const lines = content.split("\n").filter(l => l.trim());
+    const lastLine = lines.at(-1) ?? "";
+    // Strip ANSI escape codes
+    const clean = lastLine.replace(/\x1b\[[0-9;]*[mGKHFJA-Z]/g, "").replace(/\r/g, "");
+    // Idle: last line ends with prompt marker + optional whitespace (nothing typed)
+    if (/[#$%>❯»]\s*$/.test(clean)) return { idle: true, lastInput: "" };
+    // Not idle: prompt marker followed by non-whitespace user content
+    const notIdleMatch = clean.match(/[#$%>❯»]\s+(\S.*)$/);
+    if (notIdleMatch) return { idle: false, lastInput: notIdleMatch[1] };
+    // No prompt visible (command running or agent output) → treat as idle
+    return { idle: true, lastInput: "" };
+  } catch {
+    return { idle: true, lastInput: "" };
+  }
+}
+
 export async function cmdSend(query: string, message: string, force = false) {
   const config = loadConfig();
 
@@ -110,6 +136,17 @@ export async function cmdSend(query: string, message: string, force = false) {
         console.error(`\x1b[31merror\x1b[0m: no active Claude session in ${target} (running: ${cmd})`);
         console.error(`\x1b[33mhint\x1b[0m:  run \x1b[36mmaw wake ${query}\x1b[0m first, or use \x1b[36m--force\x1b[0m to send anyway`);
         process.exit(1);
+      }
+      // #405: idle guard — abort if user has in-progress input on the prompt line
+      let idleCheck = await checkPaneIdle(target);
+      if (!idleCheck.idle) {
+        await Bun.sleep(500);
+        idleCheck = await checkPaneIdle(target);
+        if (!idleCheck.idle) {
+          console.error(`\x1b[31merror\x1b[0m: pane ${target} is not idle — user appears to be typing: "${idleCheck.lastInput.slice(0, 60)}"`);
+          console.error(`\x1b[33mhint\x1b[0m:  use \x1b[36m--force\x1b[0m to send anyway`);
+          process.exit(1);
+        }
       }
     }
     await sendKeys(target, message);

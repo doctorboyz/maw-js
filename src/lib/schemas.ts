@@ -105,6 +105,7 @@ export type TSleepBody = Static<typeof SleepBody>;
 export const SendBody = Type.Object({
   target: Type.String(),
   text: Type.String(),
+  force: Type.Optional(Type.Boolean()),
 });
 export type TSendBody = Static<typeof SendBody>;
 

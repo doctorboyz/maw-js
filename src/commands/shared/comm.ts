@@ -7,4 +7,4 @@
 export { logMessage, emitFeed } from "./comm-log-feed";
 export { renderSessionName, cmdList } from "./comm-list";
 export { resolveSearchSessions, cmdPeek } from "./comm-peek";
-export { resolveOraclePane, resolveMyName, cmdSend } from "./comm-send";
+export { resolveOraclePane, resolveMyName, cmdSend, checkPaneIdle } from "./comm-send";
