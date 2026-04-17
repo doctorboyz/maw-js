@@ -206,7 +206,15 @@ export async function detectSession(oracle: string): Promise<string | null> {
 export async function setSessionEnv(session: string): Promise<void> {
   for (const [key, val] of Object.entries(getEnvVars())) {
     if (val.startsWith("pass:")) {
-      await hostExec(`tmux set-environment -t '${session}' ${key} "$(pass show '${val.slice(5)}')"`)
+      const secretName = val.slice(5);
+      const proc = Bun.spawn(["pass", "show", secretName], { stdout: "pipe", stderr: "pipe" });
+      const [secret, , code] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+      if (code !== 0) throw new Error(`pass show '${secretName}' failed (exit ${code})`);
+      await tmux.setEnvironment(session, key, secret.trimEnd());
     } else {
       await tmux.setEnvironment(session, key, val);
     }
