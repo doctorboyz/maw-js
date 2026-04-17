@@ -1,6 +1,6 @@
 import type { InvokeContext, InvokeResult } from "../../../plugin/types";
 import { parseFlags } from "../../../cli/parse-args";
-import { cmdTmuxPeek, cmdTmuxLs, cmdTmuxSend } from "./impl";
+import { cmdTmuxPeek, cmdTmuxLs, cmdTmuxSend, cmdTmuxSplit, cmdTmuxKill, cmdTmuxLayout, cmdTmuxAttach } from "./impl";
 
 export const command = {
   name: "tmux",
@@ -89,15 +89,89 @@ export default async function handler(ctx: InvokeContext): Promise<InvokeResult>
       const lines = (flags["--lines"] as number | undefined) ?? 30;
       const history = !!flags["--history"];
       await cmdTmuxPeek(target, { lines, history });
+    } else if (sub === "split") {
+      const flags = parseFlags(args, {
+        "--vertical": Boolean, "-v": "--vertical",
+        "--horizontal": Boolean, "-h": "--horizontal",
+        "--pct": Number,
+        "--cmd": String,
+        "--help": Boolean,
+      }, 1);
+      if (flags["--help"]) {
+        console.log("usage: maw tmux split <target> [-v|--vertical] [--pct N] [--cmd '<cmd>']");
+        return { ok: true, output: logs.join("\n") || undefined };
+      }
+      const target = flags._[0];
+      if (!target) {
+        console.log("usage: maw tmux split <target> [-v] [--pct N] [--cmd '<cmd>']");
+        return { ok: false, error: "target required", output: logs.join("\n") };
+      }
+      await cmdTmuxSplit(target, {
+        vertical: !!flags["--vertical"],
+        pct: flags["--pct"] as number | undefined,
+        cmd: flags["--cmd"] as string | undefined,
+      });
+    } else if (sub === "kill") {
+      const flags = parseFlags(args, {
+        "--force": Boolean,
+        "--session": Boolean, "-s": "--session",
+        "--help": Boolean, "-h": "--help",
+      }, 1);
+      if (flags["--help"]) {
+        console.log("usage: maw tmux kill <target> [--force] [--session|-s]");
+        console.log("  default: kill the pane. --session/-s: kill the whole session.");
+        console.log("  refuses fleet/view sessions unless --force.");
+        return { ok: true, output: logs.join("\n") || undefined };
+      }
+      const target = flags._[0];
+      if (!target) {
+        console.log("usage: maw tmux kill <target> [--force] [--session]");
+        return { ok: false, error: "target required", output: logs.join("\n") };
+      }
+      await cmdTmuxKill(target, {
+        force: !!flags["--force"],
+        session: !!flags["--session"],
+      });
+    } else if (sub === "layout") {
+      const flags = parseFlags(args, { "--help": Boolean, "-h": "--help" }, 1);
+      if (flags["--help"]) {
+        console.log("usage: maw tmux layout <target> <preset>");
+        console.log("  presets: even-horizontal, even-vertical, main-horizontal, main-vertical, tiled");
+        return { ok: true, output: logs.join("\n") || undefined };
+      }
+      const target = flags._[0];
+      const preset = flags._[1];
+      if (!target || !preset) {
+        console.log("usage: maw tmux layout <target> <preset>");
+        return { ok: false, error: "target and preset required", output: logs.join("\n") };
+      }
+      await cmdTmuxLayout(target, preset);
+    } else if (sub === "attach") {
+      const flags = parseFlags(args, { "--help": Boolean, "-h": "--help" }, 1);
+      if (flags["--help"]) {
+        console.log("usage: maw tmux attach <target>");
+        console.log("  prints the tmux attach command for you to run (TTY required).");
+        return { ok: true, output: logs.join("\n") || undefined };
+      }
+      const target = flags._[0];
+      if (!target) {
+        console.log("usage: maw tmux attach <target>");
+        return { ok: false, error: "target required", output: logs.join("\n") };
+      }
+      cmdTmuxAttach(target);
     } else if (!sub || sub === "--help" || sub === "-h") {
-      console.log("usage: maw tmux <ls|peek|send> [args]");
+      console.log("usage: maw tmux <ls|peek|send|split|kill|layout|attach> [args]");
       console.log("  ls [--all]              list panes with fleet + team annotations");
       console.log("  peek <target>           read content of a tmux pane");
       console.log("  send <target> <cmd>     send keys to a pane (with safety gates)");
+      console.log("  split <target>          split a pane (--vertical, --pct, --cmd)");
+      console.log("  kill <target>           kill a pane or --session (fleet-safe)");
+      console.log("  layout <target> <preset> apply a tmux layout preset");
+      console.log("  attach <target>         print tmux attach command (TTY required)");
       return { ok: true, output: logs.join("\n") || undefined };
     } else {
       console.log(`unknown tmux subcommand: ${sub}`);
-      console.log("usage: maw tmux <ls|peek|send>");
+      console.log("usage: maw tmux <ls|peek|send|split|kill|layout|attach>");
       return { ok: false, error: `unknown subcommand: ${sub}`, output: logs.join("\n") };
     }
 

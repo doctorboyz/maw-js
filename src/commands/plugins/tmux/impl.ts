@@ -4,7 +4,7 @@ import { homedir } from "os";
 import { hostExec, tmux } from "../../../sdk";
 import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { loadFleetEntries } from "../../shared/fleet-load";
-import { checkDestructive, isClaudeLikePane } from "./safety";
+import { checkDestructive, isClaudeLikePane, isFleetOrViewSession } from "./safety";
 
 const TEAMS_DIR = join(homedir(), ".claude/teams");
 
@@ -247,6 +247,140 @@ export async function cmdTmuxSend(target: string, command: string, opts: TmuxSen
   }
 
   console.log(`\x1b[32m✓\x1b[0m sent to ${target} → ${resolved} \x1b[90m[${source}]${opts.literal ? " (literal)" : ""}${opts.allowDestructive ? " (destructive-allowed)" : ""}${opts.force ? " (force)" : ""}\x1b[0m`);
+}
+
+export interface TmuxSplitOpts {
+  /** Vertical (stacked) split. Default horizontal (side-by-side). */
+  vertical?: boolean;
+  /** Size percent for the new pane (1-99). Default 50. */
+  pct?: number;
+  /** Command to run in the new pane. Default: login shell. */
+  cmd?: string;
+}
+
+/**
+ * Split a target pane. Wraps `tmux split-window -t <target>`. Thin —
+ * intentionally NOT delegating to the maw split plugin (that one
+ * attaches to a fleet session; this one is a primitive split).
+ */
+export async function cmdTmuxSplit(target: string, opts: TmuxSplitOpts = {}): Promise<void> {
+  const hit = resolveTmuxTarget(target);
+  if (!hit) throw new Error(`cannot resolve target '${target}'`);
+  const { resolved, source } = hit;
+
+  const pct = opts.pct ?? 50;
+  if (!Number.isFinite(pct) || pct < 1 || pct > 99) {
+    throw new Error(`--pct must be 1-99 (got ${pct})`);
+  }
+
+  const direction = opts.vertical ? "-v" : "-h";
+  const cmdSuffix = opts.cmd ? ` '${opts.cmd.replace(/'/g, "'\\''")}'` : "";
+  const tmuxCmd = `tmux split-window ${direction} -l ${pct}% -t '${resolved}'${cmdSuffix}`;
+
+  try {
+    await hostExec(tmuxCmd);
+  } catch (e: any) {
+    throw new Error(`split-window failed for '${resolved}' (from ${source}): ${e?.message || e}`);
+  }
+
+  console.log(`\x1b[32m✓\x1b[0m split ${target} → ${resolved} \x1b[90m[${source}] ${opts.vertical ? "vertical" : "horizontal"} ${pct}%\x1b[0m`);
+}
+
+export interface TmuxKillOpts {
+  /** Bypass fleet/view session refusal. Required to kill a live oracle pane/session. */
+  force?: boolean;
+  /** Kill the entire session (not just the pane). */
+  session?: boolean;
+}
+
+/**
+ * Kill a target pane or session. Wraps `tmux kill-pane -t` or
+ * `tmux kill-session -t`. Refuses fleet/view sessions by default
+ * (Bug F class — never accidentally kill live oracles).
+ */
+export async function cmdTmuxKill(target: string, opts: TmuxKillOpts = {}): Promise<void> {
+  const hit = resolveTmuxTarget(target);
+  if (!hit) throw new Error(`cannot resolve target '${target}'`);
+  const { resolved, source } = hit;
+
+  // Fleet/view safety — extract session from resolved target
+  const session = resolved.split(":")[0] ?? "";
+  const fleetSessions = new Set<string>();
+  try {
+    for (const entry of loadFleetEntries()) {
+      fleetSessions.add(entry.file.replace(/\.json$/, ""));
+    }
+  } catch { /* no fleet dir */ }
+
+  if (isFleetOrViewSession(session, fleetSessions) && !opts.force) {
+    throw new Error(
+      `refusing to kill: session '${session}' is fleet or view.\n` +
+      `  killing would terminate a live oracle (or its mirror).\n` +
+      `  pass --force to override (you really want to kill a fleet session)`
+    );
+  }
+
+  const tmuxCmd = opts.session
+    ? `tmux kill-session -t '${session}'`
+    : `tmux kill-pane -t '${resolved}'`;
+
+  try {
+    await hostExec(tmuxCmd);
+  } catch (e: any) {
+    throw new Error(`kill failed for '${resolved}' (from ${source}): ${e?.message || e}`);
+  }
+
+  console.log(`\x1b[32m✓\x1b[0m killed ${opts.session ? "session" : "pane"} ${target} → ${opts.session ? session : resolved} \x1b[90m[${source}]${opts.force ? " (force)" : ""}\x1b[0m`);
+}
+
+export interface TmuxLayoutOpts {
+  preset: string;
+}
+
+const VALID_LAYOUTS = ["even-horizontal", "even-vertical", "main-horizontal", "main-vertical", "tiled"] as const;
+
+/**
+ * Apply a layout preset to a window. Wraps `tmux select-layout -t <window> <preset>`.
+ */
+export async function cmdTmuxLayout(target: string, preset: string): Promise<void> {
+  if (!VALID_LAYOUTS.includes(preset as any)) {
+    throw new Error(`invalid layout '${preset}'. Valid: ${VALID_LAYOUTS.join(", ")}`);
+  }
+  const hit = resolveTmuxTarget(target);
+  if (!hit) throw new Error(`cannot resolve target '${target}'`);
+  const { resolved, source } = hit;
+
+  // Layouts apply to windows, not panes — strip pane index if present
+  const window = resolved.replace(/\.\d+$/, "");
+
+  try {
+    await hostExec(`tmux select-layout -t '${window}' ${preset}`);
+  } catch (e: any) {
+    throw new Error(`select-layout failed for '${window}' (from ${source}): ${e?.message || e}`);
+  }
+
+  console.log(`\x1b[32m✓\x1b[0m layout ${preset} applied to ${target} → ${window} \x1b[90m[${source}]\x1b[0m`);
+}
+
+/**
+ * Print the tmux attach command for the user to exec themselves.
+ *
+ * We can't `exec tmux attach` from a Bun subprocess because attach is
+ * TTY-interactive and our process is the wrong process to attach. Instead
+ * we resolve the target and print the exact command — the user runs it.
+ *
+ * This matches `maw team spawn`'s pattern (Bug C philosophy): prepare,
+ * print, let the operator run the interactive part.
+ */
+export function cmdTmuxAttach(target: string): void {
+  const hit = resolveTmuxTarget(target);
+  if (!hit) throw new Error(`cannot resolve target '${target}'`);
+  const { resolved, source } = hit;
+  const session = resolved.split(":")[0] ?? "";
+
+  console.log(`\x1b[36mRun:\x1b[0m tmux attach -t ${session}`);
+  console.log(`\x1b[90m  resolved: ${target} → ${session} [${source}]`);
+  console.log(`  detach with: Ctrl-b d\x1b[0m`);
 }
 
 /**
