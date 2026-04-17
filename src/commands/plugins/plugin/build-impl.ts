@@ -63,12 +63,12 @@ export function inferCapabilitiesRegex(source: string): string[] {
  * The exported name `inferCapabilities` is kept stable so callers (build,
  * install, check commands) and existing tests don't change.
  */
-export function inferCapabilities(source: string): string[] {
+export function inferCapabilities(source: string, fileName?: string): string[] {
   const mode = process.env.MAW_PLUGIN_CAP_INFER ?? "ast";
   if (mode === "regex") {
     return inferCapabilitiesRegex(source);
   }
-  return inferCapabilitiesAst(source);
+  return inferCapabilitiesAst(source, fileName);
 }
 
 // ─── Command ─────────────────────────────────────────────────────────────────
@@ -167,10 +167,14 @@ async function runBuild(dir: string): Promise<BuildSummary> {
   }
 
   const bundleBytes = readFileSync(outFile);
-  const source = bundleBytes.toString("utf8");
+  const bundleSource = bundleBytes.toString("utf8");
 
   // --- Capability inference + declared-diff ---
-  const inferred = inferCapabilities(source);
+  // AST mode: scan the pre-bundle source file (structured imports preserved).
+  // Regex mode: scan the bundled output (Phase A compatibility — text search).
+  const mode = process.env.MAW_PLUGIN_CAP_INFER ?? "ast";
+  const scanSource = mode === "regex" ? bundleSource : readFileSync(srcPath, "utf8");
+  const inferred = inferCapabilities(scanSource, srcPath);
   const declared = Array.isArray(manifest.capabilities) ? (manifest.capabilities as string[]) : [];
   const declaredSet = new Set(declared);
   const inferredSet = new Set(inferred);
