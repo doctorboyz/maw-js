@@ -1,30 +1,41 @@
 /**
  * maw plugin build [dir] [--watch]
  *
- * Phase A bundler:
+ * Phase B bundler (Wave 1A):
  *   1. Read + validate <dir>/plugin.json (reject target:"wasm" → Phase C).
  *   2. `bun build src/index.ts --outfile dist/index.js --target=bun --format=esm`
  *      (SDK bundled into plugin — no external flag, per sdk-foundation's plan).
- *   3. Regex capability inference over the bundled output. Advisory in Phase A.
+ *   3. AST-based capability inference (Phase B default). Regex path kept behind
+ *      MAW_PLUGIN_CAP_INFER=regex for rollback. Default: MAW_PLUGIN_CAP_INFER=ast.
  *   4. sha256 of the bundle, prefixed "sha256:" per architect's schema.
  *   5. Emit dist/plugin.json — copy of source manifest with capabilities filled
  *      in and artifact.{path,sha256} rewritten to the built bundle.
  *   6. Pack <dir>/<name>-<version>.tgz (flat: plugin.json + index.js at root).
  *
- * Regex inference blind spots (transitive npm-dep imports) are documented in
- * the debate plan's Round-4 "no DX cliff" section — Phase B walks the bundle
- * graph. For now this is advisory and loudly prints the detected set.
+ * Feature flag: MAW_PLUGIN_CAP_INFER=regex|ast (default: ast)
+ *   Set to "regex" to fall back to Phase A regex inference if AST hits edge cases.
+ *
+ * Invariant: AST outputs are equal-or-stricter than regex. Never more permissive.
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, watch } from "fs";
 import { join, resolve, basename } from "path";
 import { spawnSync } from "child_process";
 import { parseFlags } from "../../../cli/parse-args";
+import { inferCapabilitiesAst } from "../../../plugin/cap-infer-ast";
 
 // ─── Capability inference ────────────────────────────────────────────────────
 
-/** Phase A regex rules over source. Crude — Phase B walks the bundle graph. */
-export function inferCapabilities(source: string): string[] {
+/**
+ * Phase A regex rules over source. Kept as fallback behind MAW_PLUGIN_CAP_INFER=regex.
+ *
+ * Blind spots (all caught by Phase B AST path):
+ *   • Destructured usage: `const { identity } = maw; identity()` — escapes `maw\.(\w+)`
+ *   • Aliased binding: `const m = maw; m.identity()` — escapes `maw\.` regex
+ *   • Bracket access: `maw["wake"]()` — escapes `maw\.\w+` regex
+ *   • Dynamic require/import of risky modules not caught by static import regex
+ */
+export function inferCapabilitiesRegex(source: string): string[] {
   const caps = new Set<string>();
 
   // maw.<verb> — SDK method access
@@ -41,6 +52,23 @@ export function inferCapabilities(source: string): string[] {
   if (/(?:^|[^.\w])fetch\s*\(/.test(source)) caps.add("net:fetch");
 
   return [...caps].sort();
+}
+
+/**
+ * inferCapabilities — dispatch to AST or regex based on MAW_PLUGIN_CAP_INFER.
+ *
+ * Default: "ast" (Phase B). Set MAW_PLUGIN_CAP_INFER=regex to fall back to
+ * Phase A regex inference.
+ *
+ * The exported name `inferCapabilities` is kept stable so callers (build,
+ * install, check commands) and existing tests don't change.
+ */
+export function inferCapabilities(source: string): string[] {
+  const mode = process.env.MAW_PLUGIN_CAP_INFER ?? "ast";
+  if (mode === "regex") {
+    return inferCapabilitiesRegex(source);
+  }
+  return inferCapabilitiesAst(source);
 }
 
 // ─── Command ─────────────────────────────────────────────────────────────────

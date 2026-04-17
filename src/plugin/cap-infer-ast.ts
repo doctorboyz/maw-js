@@ -147,28 +147,54 @@ function collectAliasAndCallSites(
   mawNamedBindings: Map<string, string>,
   caps: Set<string>,
 ): void {
-  // First pass: collect variable aliases like `const m = maw` before walking calls.
-  // We do a pre-pass so that later call sites using the alias are caught.
-  collectVariableAliases(sf, mawDefaultBindings);
+  // First pass: collect variable aliases like `const m = maw` and destructures
+  // like `const { identity } = maw` before walking call sites.
+  collectVariableAliases(sf, mawDefaultBindings, mawNamedBindings);
 
   // Second pass: walk all call expressions and member accesses.
   walkNode(sf, mawDefaultBindings, mawNamedBindings, caps);
 }
 
-/** Pre-pass: find `const/let/var alias = mawBinding` patterns. */
-function collectVariableAliases(node: ts.Node, mawDefaultBindings: Set<string>): void {
-  if (ts.isVariableDeclaration(node)) {
-    // Pattern: `const m = maw`
-    if (
-      node.initializer &&
-      ts.isIdentifier(node.initializer) &&
-      mawDefaultBindings.has(node.initializer.text) &&
-      ts.isIdentifier(node.name)
-    ) {
-      mawDefaultBindings.add(node.name.text);
+/**
+ * Pre-pass: find alias and destructure patterns over maw bindings.
+ *
+ * Handles:
+ *   • `const m = maw` — simple alias, adds "m" to mawDefaultBindings
+ *   • `const { identity } = maw` — destructure, adds "identity" → "identity" to mawNamedBindings
+ *   • `const { identity: id } = maw` — renamed destructure, adds "id" → "identity"
+ *
+ * This pre-pass runs BEFORE the call-site walk so aliases/destructures at any
+ * scope level are captured before their call sites are visited.
+ */
+function collectVariableAliases(
+  node: ts.Node,
+  mawDefaultBindings: Set<string>,
+  mawNamedBindings: Map<string, string>,
+): void {
+  if (ts.isVariableDeclaration(node) && node.initializer) {
+    const init = node.initializer;
+
+    if (ts.isIdentifier(init) && mawDefaultBindings.has(init.text)) {
+      if (ts.isIdentifier(node.name)) {
+        // Pattern: `const m = maw` — simple alias
+        mawDefaultBindings.add(node.name.text);
+      } else if (ts.isObjectBindingPattern(node.name)) {
+        // Pattern: `const { identity, send: s } = maw` — destructure
+        for (const el of node.name.elements) {
+          if (ts.isBindingElement(el) && ts.isIdentifier(el.name)) {
+            const localName = el.name.text;
+            // el.propertyName is the original key if aliased: `{ identity: id }` → propertyName = "identity"
+            const exportedName =
+              el.propertyName && ts.isIdentifier(el.propertyName)
+                ? el.propertyName.text
+                : localName;
+            mawNamedBindings.set(localName, exportedName);
+          }
+        }
+      }
     }
   }
-  ts.forEachChild(node, (child) => collectVariableAliases(child, mawDefaultBindings));
+  ts.forEachChild(node, (child) => collectVariableAliases(child, mawDefaultBindings, mawNamedBindings));
 }
 
 /** Main AST walker — detects capability call sites. */
