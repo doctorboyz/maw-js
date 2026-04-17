@@ -25,3 +25,7 @@ fleet/*.json
 
 # Team-agents worktrees (parallel fix branches live here)
 agents/
+
+# Local env + accidental self-symlink (cleanup 2026-04-17)
+.envrc
+maw-js
