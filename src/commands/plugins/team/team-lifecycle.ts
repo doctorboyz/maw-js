@@ -5,6 +5,48 @@ import { assertValidOracleName } from "../../../core/fleet/validate";
 import { TEAMS_DIR, loadTeam, resolvePsi, writeShutdownRequest, cleanupTeamDir } from "./team-helpers";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+/**
+ * Copy per-member inbox + findings to the vault mailbox, then archive the
+ * manifest. Extracted from cmdTeamShutdown so it can be called from both
+ * the alive=0 and alive>0 paths (#393 Bug G — --merge was unreachable
+ * when all members had already exited).
+ *
+ * Iterates `teammates` (not `alive`) so dead members' accumulated state
+ * still gets captured — the whole point of --merge is to preserve state
+ * at shutdown time, regardless of whether members are still live.
+ */
+export function mergeTeamKnowledge(name: string, teammates: Array<{ name: string }>) {
+  const PSI = resolvePsi();
+  const teamInboxDir = join(TEAMS_DIR, name, "inboxes");
+  for (const m of teammates) {
+    const dest = join(PSI, "memory", "mailbox", m.name);
+    mkdirSync(dest, { recursive: true });
+    // Copy inbox messages
+    const src = join(teamInboxDir, `${m.name}.json`);
+    if (existsSync(src)) {
+      copyFileSync(src, join(dest, `team-${name}-inbox.json`));
+    }
+    // Copy any findings from team dir
+    const memberDir = join(TEAMS_DIR, name, m.name);
+    if (existsSync(memberDir)) {
+      try {
+        for (const f of readdirSync(memberDir).filter(f => f.endsWith("_findings.md"))) {
+          copyFileSync(join(memberDir, f), join(dest, f));
+        }
+      } catch { /* best effort */ }
+    }
+    console.log(`  \x1b[36m↪\x1b[0m merged ${m.name} → ψ/memory/mailbox/${m.name}/`);
+  }
+  // Archive manifest instead of deleting
+  const manifestSrc = join(TEAMS_DIR, name, "config.json");
+  if (existsSync(manifestSrc)) {
+    const archiveDest = join(PSI, "memory", "mailbox", "teams", name);
+    mkdirSync(archiveDest, { recursive: true });
+    copyFileSync(manifestSrc, join(archiveDest, "manifest.json"));
+  }
+}
+
 // ─── maw team shutdown <name> ───
 
 export async function cmdTeamShutdown(name: string, opts: { force?: boolean; merge?: boolean } = {}) {
@@ -26,7 +68,13 @@ export async function cmdTeamShutdown(name: string, opts: { force?: boolean; mer
 
   if (!alive.length) {
     console.log(`\x1b[90mAll teammates in '${name}' already exited. Cleaning up config...\x1b[0m`);
+    // #393 Bug G: --merge must still run when alive=0. Knowledge preservation
+    // is the whole point; gating it on alive count caused silent data loss.
+    if (opts.merge) {
+      mergeTeamKnowledge(name, teammates);
+    }
     cleanupTeamDir(name);
+    if (opts.merge) console.log(`\x1b[32m✓\x1b[0m team '${name}' cleaned up (knowledge merged)`);
     return;
   }
 
@@ -68,34 +116,7 @@ export async function cmdTeamShutdown(name: string, opts: { force?: boolean; mer
 
   // FUSION: merge team knowledge into individual oracle mailboxes
   if (opts.merge) {
-    const PSI = resolvePsi();
-    const teamInboxDir = join(TEAMS_DIR, name, "inboxes");
-    for (const m of teammates) {
-      const dest = join(PSI, "memory", "mailbox", m.name);
-      mkdirSync(dest, { recursive: true });
-      // Copy inbox messages
-      const src = join(teamInboxDir, `${m.name}.json`);
-      if (existsSync(src)) {
-        copyFileSync(src, join(dest, `team-${name}-inbox.json`));
-      }
-      // Copy any findings from team dir
-      const memberDir = join(TEAMS_DIR, name, m.name);
-      if (existsSync(memberDir)) {
-        try {
-          for (const f of readdirSync(memberDir).filter(f => f.endsWith("_findings.md"))) {
-            copyFileSync(join(memberDir, f), join(dest, f));
-          }
-        } catch { /* best effort */ }
-      }
-      console.log(`  \x1b[36m↪\x1b[0m merged ${m.name} → ψ/memory/mailbox/${m.name}/`);
-    }
-    // Archive manifest instead of deleting
-    const manifestSrc = join(TEAMS_DIR, name, "config.json");
-    if (existsSync(manifestSrc)) {
-      const archiveDest = join(PSI, "memory", "mailbox", "teams", name);
-      mkdirSync(archiveDest, { recursive: true });
-      copyFileSync(manifestSrc, join(archiveDest, "manifest.json"));
-    }
+    mergeTeamKnowledge(name, teammates);
   }
 
   cleanupTeamDir(name);
