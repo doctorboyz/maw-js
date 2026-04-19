@@ -203,7 +203,7 @@ Scope this tight — everything else is Phase 2+.
 
 **In:**
 
-1. New file `src/core/scopes/store.ts` — `loadScope(name)`, `writeScope(rec)`, `listScopes()`, `inScope(sender, target, scope)`. Mirrors the shape of `consent/store.ts`. Atomic write via temp+rename. ~120 LOC.
+1. New file `src/core/scopes/store.ts` — `loadScope(name)`, `writeScope(rec)`, `listScopes()`, `inScope(sender, target, scope)`. **Team scopes read from `ψ/memory/mailbox/teams/<team>/manifest.json` (rfc-team alignment — single source of truth); personal/public scopes live in `~/.maw/scopes/<name>.json`.** Atomic write via temp+rename. ~120 LOC.
 2. New file `src/core/scopes/gate.ts` — `maybeGateScope(ctx)`. Runs BEFORE the existing `maybeGateConsent`. Returns allow if (sender, target, scope) all valid; otherwise enqueues a pending approval and denies. ~80 LOC.
 3. Wire into `comm-send.ts` — parse `@scope:agent` form, populate `GateContext.scope`, call `maybeGateScope` first, `maybeGateConsent` second. ~40 LOC.
 4. Minimal CLI: `maw scope list`, `maw scope show <name>` only. ~40 LOC.
@@ -234,5 +234,6 @@ Env flag: `MAW_SCOPED_ROUTING=1` — when off, `@scope:agent` errors with
 
 - **2026-04-19 r1**: initial packet (commit ee4c7b1).
 - **2026-04-19 r2**: folded rfc-identity reply — fingerprint primitive in §3, signed credential + header integration in §4.1, v1 single-owner decision in §4.2, fingerprint-based renaming in §7.3 resolved. Folded rfc-team consult — §7.8 documents team-invite (join) vs scope (message) separation.
+- **2026-04-19 r3**: rfc-team round 2 — team scope reads from existing `ψ/memory/mailbox/teams/<team>/manifest.json` (single source of truth, no new file). Manifest grows optional `scopeOwner` + `epoch` fields for federated teams; both additive.
 
 *Container-proto reply still pending; §7.9 remains tentative until they land.*
