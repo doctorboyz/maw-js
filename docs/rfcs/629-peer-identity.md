@@ -130,8 +130,46 @@ Explicitly **not** in first PR: `peers.json` schema bump, pair handshake changes
 - **OQ2 — Nickname change.** Nickname is advisory metadata. If `neo` renames to `neoa`, peer `peers.json` entries are still keyed by the old alias. Do we rekey by fingerprint and treat `alias` as display-only? Leaning yes — matches #629's "names are UX" framing.
 - **OQ3 — Pair-code threat model.** Phase-2 pair must bind pubkeys inside the code exchange, not after, to avoid a window where a MITM swaps keys. Matches the existing `handshake.ts` "code itself authenticates this single exchange" comment but needs explicit audit.
 - **OQ4 — Multi-device same oracle.** If `neo` runs on laptop + phone, same identity or per-device subkeys? Punt to post-migration; Phase-1 doesn't preclude either.
-- **OQ5 — Interaction with #642 scoped routing.** Does per-scope trust piggyback on identity sigs, or does scope introduce its own token? Awaiting rfc-routing cross-consult.
-- **OQ6 — Interaction with #627 teams.** Does team membership require proven identity (pubkey-signed join), or does it layer over existing nickname peers? Awaiting rfc-team cross-consult.
+- **OQ5 — Interaction with #642 scoped routing.** *Resolved direction (see §8.1):* identity signs scope membership credentials. Scope-owner's identity keypair is the trust root; credential payload is `scope-member/v1 { scope, member, epoch, issued-at, expires-at }` with ed25519 signature. `X-Maw-Scope-Credential` header carries the b64 credential; receiver verifies signature + matches `member` against sender's `X-Maw-Identity`. Revocation via `SCOPE_EPOCH` bump. Who owns a scope (single creator vs consensus) is rfc-routing's call.
+- **OQ6 — Interaction with #627 teams.** *Resolved direction (see §8.2):* v1 teams ship name-only (current `namedPeers.name` as stable-enough id); v2 teams upgrade via signed-join — `team-invite`'s PIN round is extended to carry `publicKey + invitee-signature-over-PIN`, closing the trust loop at invite time. First-message per-request signing is strictly an additional belt in Phase-3.
+
+## 8. Cross-consult resolutions
+
+Recorded here because the answers shape Phase-1 scope.
+
+### 8.1 rfc-routing (#642 scoped routing)
+
+- `fingerprint` (sha256(spki-pubkey)[0..16], 16 hex chars) is adopted as the stable agent-id primitive for the `@scope:agent` grammar. Nickname→fingerprint is a local lookup (DNS-style); wire carries fingerprint, display carries nickname.
+- Scope membership is a **signed credential**, not a local-only fact. Canonical payload:
+  ```
+  scope-member/v1
+  scope=<SCOPE_NAME>
+  member=<MEMBER_FINGERPRINT>
+  epoch=<SCOPE_EPOCH>
+  issued-at=<ISO8601>
+  expires-at=<ISO8601_OR_never>
+  ```
+  Signed by the scope-owner's identity privkey; verifiable offline by anyone with the owner's fingerprint. Carried in `X-Maw-Scope-Credential` header; receiver additionally checks `member` matches the `X-Maw-Identity` fingerprint (Phase-3).
+- Revocation = bump `SCOPE_EPOCH`, re-issue credentials. Stale-epoch credentials rejected.
+- Phase-1 (this RFC's first PR) does NOT ship scope-credential code — routing RFC owns that — but Phase-1 MUST expose the `signWith(identity, canonical)` / `verify(fingerprint, canonical, sig)` primitives in a shape rfc-routing can consume.
+
+### 8.2 rfc-team (#627 oracle-team)
+
+- Confirmed: identity is NOT a v1 team prereq. v1 uses `namedPeers.name`; v2 adopts signed-join cleanly.
+- Canonical keyfile location: `~/.maw/identity.json` (single place, JSON wrapper, mode 0600). No `ψ/identity/` parallel store — if Oracle layer needs a bare-key view, expose via a helper, not a second file.
+- Keygen runs **both**: lazy (`ensureIdentity()` on first command that needs it) AND eager (invoked by `maw bud` post-hook so freshly-budded oracles boot with a key). Same idempotent function, two call-sites.
+- Signed-join on **invite** (v2), not first-message. The PIN round already establishes human-intent at the right moment; extend its payload to carry `publicKey + invitee-signature-over-PIN`. First-message per-request signing comes with Phase-3 and is independent.
+
+### 8.3 container-proto (docker oracle prototype)
+
+- Container keypair persists in a **named volume at `/home/oracle/.maw/identity.json`** — same schema as host, so `rsync`-ing the volume to a host is a valid recovery path.
+- Oracle name (`stem`) is **baked in at build time via env** (e.g. `ORACLE_STEM=neo`), written to `nickname` field on first boot. Name is NOT derived from pubkey — keeping `stem` (human display) and `fingerprint` (canonical id) orthogonal is the whole point of this RFC. Two containers with the same stem + different fingerprints is the #629 collision case, which this design already handles.
+- Entrypoint flow: `if [ ! -f /home/oracle/.maw/identity.json ]; then maw identity init --nickname="${ORACLE_STEM:-container-oracle}"; fi; exec maw "$@"`.
+- Volume-loss is re-pair territory, not silent re-trust: when host sees a fingerprint change for a known nickname, it MUST re-run the pair flow rather than auto-accept. Added as OQ7 below.
+
+## 9. Additional open questions (from cross-consult)
+
+- **OQ7 — Fingerprint rotation / re-pair semantics.** When a paired peer presents a new fingerprint under an existing `peers.json` alias (volume loss, key compromise, deliberate rotation), the default MUST be reject-and-require-re-pair. Auto-accepting on fingerprint change defeats the entire identity primitive. Surfaces first as a `maw peers add` refusal with a clear "re-run `maw pair`" hint. Triggered by container-proto's volume-loss case; applies equally to host-side key rotation.
 
 ## Appendix A — Relation to issue's narrow A/B question
 
