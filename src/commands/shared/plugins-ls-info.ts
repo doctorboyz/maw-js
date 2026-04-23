@@ -2,8 +2,7 @@
  * plugins seam: doLs + doInfo implementations.
  */
 
-import type { LoadedPlugin, PluginTier } from "../../plugin/types";
-import { weightToTier } from "../../plugin/types";
+import { type LoadedPlugin, type PluginTier, weightToTier } from "../../plugin/types";
 import { existsSync } from "fs";
 import { surfaces, shortenHome, printTable } from "./plugins-ui";
 
