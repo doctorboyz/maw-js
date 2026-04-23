@@ -21,7 +21,7 @@ import {
   describe, test, expect, mock, beforeEach, afterEach, afterAll,
 } from "bun:test";
 import { join } from "path";
-import { mkdtempSync, rmSync, readdirSync, writeFileSync, existsSync, readFileSync } from "fs";
+import { mkdtempSync, mkdirSync, rmSync, readdirSync, writeFileSync, existsSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 
 // ─── Gate ───────────────────────────────────────────────────────────────────
@@ -35,6 +35,9 @@ process.env.MAW_CONFIG_DIR = tmpConfigDir;
 const WS_DIR = join(tmpConfigDir, "workspaces");
 
 function clearWorkspacesDir(): void {
+  // #703: workspace-store no longer creates the dir at import time,
+  // so ensure it exists for tests that use writeWsFile() directly.
+  mkdirSync(WS_DIR, { recursive: true });
   try {
     for (const f of readdirSync(WS_DIR)) {
       try { rmSync(join(WS_DIR, f), { force: true }); } catch {}

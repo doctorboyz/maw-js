@@ -6,7 +6,15 @@ import { CONFIG_DIR } from "../core/paths";
 import type { Workspace } from "./workspace-types";
 
 export const WORKSPACE_DIR = join(CONFIG_DIR, "workspaces");
-mkdirSync(WORKSPACE_DIR, { recursive: true });
+
+// #703: Defer directory creation to first use — module-level mkdirSync
+// wrote to real $XDG_CONFIG_HOME even during `bun install` in a worktree.
+let _wsDirReady = false;
+function ensureWorkspaceDir(): void {
+  if (_wsDirReady) return;
+  mkdirSync(WORKSPACE_DIR, { recursive: true });
+  _wsDirReady = true;
+}
 
 /** In-memory cache, persisted to disk on mutation */
 export const workspaces = new Map<string, Workspace>();
@@ -14,6 +22,7 @@ export const workspaces = new Map<string, Workspace>();
 /** Load all workspaces from disk into memory */
 export function loadAll() {
   if (workspaces.size > 0) return; // already loaded
+  ensureWorkspaceDir();
   try {
     for (const file of readdirSync(WORKSPACE_DIR)) {
       if (!file.endsWith(".json")) continue;
@@ -26,6 +35,7 @@ export function loadAll() {
 }
 
 export function persist(ws: Workspace) {
+  ensureWorkspaceDir();
   writeFileSync(join(WORKSPACE_DIR, `${ws.id}.json`), JSON.stringify(ws, null, 2) + "\n", "utf-8");
 }
 

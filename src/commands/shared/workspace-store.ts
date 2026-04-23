@@ -4,11 +4,19 @@ import { homedir } from "os";
 import { loadConfig } from "../../config";
 
 // ── Workspace config directory ──────────────────────────────────────
+// #703: Resolved lazily — module-level mkdirSync wrote to the real
+// $XDG_CONFIG_HOME even during `bun install` inside a /tmp worktree.
 export const WORKSPACES_DIR = join(
   process.env.MAW_CONFIG_DIR || join(homedir(), ".config", "maw"),
   "workspaces"
 );
-mkdirSync(WORKSPACES_DIR, { recursive: true });
+
+let _wsDirReady = false;
+function ensureWorkspacesDir(): void {
+  if (_wsDirReady) return;
+  mkdirSync(WORKSPACES_DIR, { recursive: true });
+  _wsDirReady = true;
+}
 
 // ── Types ───────────────────────────────────────────────────────────
 export interface WorkspaceConfig {
@@ -75,6 +83,7 @@ export function normalizeWorkspace(raw: unknown): WorkspaceConfig | null {
 }
 
 export function loadWorkspace(id: string): WorkspaceConfig | null {
+  ensureWorkspacesDir();
   const p = configPath(id);
   if (!existsSync(p)) return null;
   try {
@@ -85,10 +94,12 @@ export function loadWorkspace(id: string): WorkspaceConfig | null {
 }
 
 export function saveWorkspace(ws: WorkspaceConfig): void {
+  ensureWorkspacesDir();
   writeFileSync(configPath(ws.id), JSON.stringify(ws, null, 2) + "\n", "utf-8");
 }
 
 export function loadAllWorkspaces(): WorkspaceConfig[] {
+  ensureWorkspacesDir();
   try {
     const files = readdirSync(WORKSPACES_DIR).filter(f => f.endsWith(".json"));
     return files
@@ -109,12 +120,12 @@ export function loadAllWorkspaces(): WorkspaceConfig[] {
 export function reportNoWorkspaceId(): void {
   const all = loadAllWorkspaces();
   if (all.length === 0) {
-    console.error("\x1b[31m\u274c\x1b[0m no workspaces joined");
+    console.error("\x1b[31m❌\x1b[0m no workspaces joined");
     console.error("\x1b[90m  maw workspace create <name>   Create a new workspace\x1b[0m");
     console.error("\x1b[90m  maw workspace join <code>     Join with invite code\x1b[0m");
     return;
   }
-  console.error(`\x1b[31m\u274c\x1b[0m multiple workspaces joined (${all.length}) — pass one with --workspace <id>:`);
+  console.error(`\x1b[31m❌\x1b[0m multiple workspaces joined (${all.length}) — pass one with --workspace <id>:`);
   for (const ws of all) {
     console.error(`  \x1b[90m${ws.id}\x1b[0m  ${ws.name}`);
   }
