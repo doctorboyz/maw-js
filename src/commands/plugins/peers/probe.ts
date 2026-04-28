@@ -16,6 +16,28 @@ export interface ProbeResult {
   node: string | null;
   /** Peer's self-reported nickname from /info (#643 Phase 2). Null means peer did not advertise one. */
   nickname?: string | null;
+  /**
+   * Peer's pubkey from /api/identity (#804 Step 2). Undefined when:
+   *   - the /info handshake itself failed (no second fetch attempted), OR
+   *   - the peer is pre-Step-1 and does not expose /api/identity, OR
+   *   - /api/identity responded but did not advertise a pubkey field.
+   *
+   * Caller passes this through `tofuRecordPeerIdentity` to pin / validate.
+   */
+  pubkey?: string;
+  /**
+   * Peer's self-reported `<oracle>:<node>` from /api/identity (#804 Step 3).
+   *
+   * Captured opportunistically alongside `pubkey` so the local cache can
+   * detect duplicate-claim collisions across peers (e.g. two peers both
+   * declaring themselves `mawjs:m5`). Undefined when /api/identity did not
+   * respond or omitted both `oracle` and `node` fields.
+   *
+   * `oracle` defaults to `"mawjs"` when the response only carries `node` —
+   * this is the family default per ADR docs/federation/0001-peer-identity.md
+   * and lets pre-Step-3 peers still participate in the collision check.
+   */
+  identity?: { oracle: string; node: string };
   error?: LastError;
 }
 
@@ -202,7 +224,60 @@ export async function probePeer(url: string, timeoutMs = 2000): Promise<ProbeRes
     ? body.nickname
     : null;
 
-  return { node, nickname };
+  // Best-effort pubkey + identity fetch (#804 Steps 2 + 3). Pre-Step-1 peers
+  // don't expose /api/identity at all; we tolerate that and return without
+  // either field — TOFU layer treats the result as a legacy peer, and the
+  // duplicate-detection layer skips peers without identity (no false positive).
+  const ident = await fetchPeerIdentityFields(url, timeoutMs);
+
+  const result: ProbeResult = { node, nickname };
+  if (ident?.pubkey) result.pubkey = ident.pubkey;
+  if (ident?.identity) result.identity = ident.identity;
+  return result;
+}
+
+/**
+ * Best-effort second fetch — `/api/identity` (#804 Steps 2 + 3).
+ *
+ * Keep this *separate* from the /info handshake so a missing/older endpoint
+ * does not poison the primary probe. We swallow every failure here: TOFU
+ * only acts on a confirmed pubkey value, and the caller already classified
+ * /info errors elsewhere.
+ *
+ * Returns whatever subset of `{ pubkey, identity }` the response advertised,
+ * or `undefined` if the endpoint is missing / unreachable / malformed.
+ *
+ * `identity` is synthesised from the response's `oracle` (defaulting to
+ * `"mawjs"` per ADR family-default) + `node` fields. Both fields must be
+ * non-empty strings for `identity` to be returned — a peer that reports
+ * neither is treated as legacy and skipped by the dedup check upstream.
+ */
+async function fetchPeerIdentityFields(
+  url: string,
+  timeoutMs: number,
+): Promise<{ pubkey?: string; identity?: { oracle: string; node: string } } | undefined> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    let res: Response;
+    try {
+      res = await fetch(new URL("/api/identity", url), { signal: ctrl.signal });
+    } finally {
+      clearTimeout(t);
+    }
+    if (!res.ok) return undefined;
+    const body = (await res.json()) as { pubkey?: unknown; oracle?: unknown; node?: unknown };
+    const out: { pubkey?: string; identity?: { oracle: string; node: string } } = {};
+    if (typeof body.pubkey === "string" && body.pubkey.length > 0) out.pubkey = body.pubkey;
+    const node = typeof body.node === "string" && body.node.length > 0 ? body.node : undefined;
+    const oracle = typeof body.oracle === "string" && body.oracle.length > 0 ? body.oracle : "mawjs";
+    if (node) out.identity = { oracle, node };
+    return out;
+  } catch {
+    // Pre-Step-1 peers: no /api/identity yet. Step 4 will reject this — for
+    // now (alpha migration window) we silently accept.
+  }
+  return undefined;
 }
 
 /**

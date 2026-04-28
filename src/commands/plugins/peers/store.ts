@@ -8,7 +8,13 @@
  * is still valid; the tmp is leftover from a crashed writer).
  *
  * Schema v1:
- *   { version: 1, peers: { <alias>: { url, node, addedAt, lastSeen } } }
+ *   { version: 1, peers: { <alias>: { url, node, addedAt, lastSeen,
+ *                                     [lastError, nickname, pubkey, pubkeyFirstSeen,
+ *                                      identity] } } }
+ *   — fields in brackets are optional. `pubkey` / `pubkeyFirstSeen` were
+ *   added in #804 Step 2 for TOFU peer-identity pinning. `identity` was
+ *   added in #804 Step 3 to capture the peer's self-reported `<oracle>:<node>`
+ *   pair for duplicate-detection (doctor + boot-time warn).
  *
  * Path resolution is a function (not a const) so tests can override
  * `HOME` / the path via `PEERS_FILE` and get a fresh value each call.
@@ -52,6 +58,32 @@ export interface Peer {
   lastError?: LastError;
   /** Optional human-friendly nickname, propagated from peer's /info (#643 Phase 2). */
   nickname?: string | null;
+  /**
+   * TOFU-cached pubkey from the peer's /api/identity response (#804 Step 2).
+   *
+   * Absent until the first successful identity fetch that returned a `pubkey`
+   * field. Once cached, every subsequent identity check validates the response
+   * against this value — mismatch is treated as either rotation or
+   * impersonation and is refused (see ADR docs/federation/0001-peer-identity.md
+   * O6 table). Operator clears via `maw peers forget <alias>` to re-TOFU.
+   */
+  pubkey?: string;
+  /** ISO timestamp when the pubkey was first cached (TOFU). */
+  pubkeyFirstSeen?: string;
+  /**
+   * Peer's self-reported `<oracle>:<node>` pair from /api/identity (#804 Step 3).
+   *
+   * Captured opportunistically alongside `pubkey` during TOFU bootstrap and on
+   * every subsequent successful probe. Drives the duplicate-detection check
+   * in `maw doctor` and the boot-time warning in `maw serve` — two peers
+   * claiming the same `<oracle>:<node>` is operator confusion that crypto
+   * (Step 2) cannot solve, and operator must investigate.
+   *
+   * Absent for legacy peers (pre-Step-1 nodes that don't expose /api/identity)
+   * and for peers whose /api/identity response omitted both `node` and `oracle`.
+   * Doctor + boot-warn skip undefined identity (no false-positive collision).
+   */
+  identity?: { oracle: string; node: string };
 }
 
 export interface PeersFile {

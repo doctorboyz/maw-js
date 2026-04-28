@@ -25,12 +25,18 @@ Pre-1.0 alpha releases may still introduce breaking changes at any time.
 
 ## [Unreleased]
 
+### Security
+- `auth`: replace predictable JWT secret default (`"maw-" + node`) with a 32-byte random secret persisted to `<CONFIG_DIR>/auth-secret` (mode 0600), generated on first run like an SSH host key. `MAW_JWT_SECRET` env var still takes precedence. Operators see a one-time `[auth] generated random JWT secret → …` line on creation. Fixes #801.
+
 ### Changed
 - **Renamed npm package** `maw` → `maw-js` to eliminate bun `DependencyLoop` caused by collision with unrelated stale `maw@0.6.0` on npm. Binary name unchanged — users still run `maw`. Fixes #554, closes #555, eliminates root cause of #531.
 
 ### Added
 - `maw update`: serialize concurrent invocations via `~/.maw/update.lock` (#551)
 - `docs/install-recovery.md` — runbook for `maw: command not found` recovery, plus README pointer (#531 mitigation ship; root cause fixed by package rename above)
+- `peers.json` schema gains `pubkey` + `pubkeyFirstSeen` fields. Federation peer pubkey caching with TOFU semantics (Trust On First Use): first sight pins, mismatches are refused with a fail-loud message pointing operators to `maw peers forget`. Legacy peers with no pubkey are accepted during the v26.5.x alpha migration window (will hard-cut at v27 — see ADR `docs/federation/0001-peer-identity.md` Step 6). New `maw peers forget <alias>` clears a pinned pubkey to allow re-TOFU after legitimate key rotation. Step 2 of #804.
+- Federation incoming `from:` + signature verification with O6 enforcement: protected `/api/send`, `/api/wake`, `/api/sleep`, `/api/pane-keys` now run a per-peer continuity check after the fleet HMAC. Cached pubkey + signed valid → accept. Cached pubkey + unsigned → REFUSE ("you used to sign"). Cached pubkey + signed mismatch → REFUSE + alert (rotation or impersonation). No cache + signed → accept (TOFU record). No cache + unsigned → accept (legacy bootstrap). Clock skew rejected at ±300s. Body, method, path are all bound to the signature so replay against a different endpoint or body fails closed. New helpers `verifyRequest`, `buildFromSignPayload`, `verifyHmacSig`, `lookupCachedPubkey`. Step 4 VERIFY of #804.
+- `POST /api/probe` — real-write-path federation health check. Walks the same `resolveTarget` + tmux-session-exists branches as `/api/send` but never delivers (no `sendKeys`). Body `{ target? }`: with target, validates target resolves and reports the transport that would be used; without target, confirms the server can run the write code path (config + listSessions). Same auth surface as `/send` (HMAC + `from:` signature). `maw health` switches its "maw server" check from `GET /api/sessions` to `POST /api/probe` so a green health check means a green delivery channel — closes the #795 schema-drift class of failure where `/api/identity` returned 200 OK while `/api/send` was broken on a disjoint code path. Step 5 of #804.
 
 ### Fixed
 - `maw update`: stash maw binary before bun-remove fallback so failed retries don't strand users with no binary (#551 — defensive belt-and-suspenders; package rename above is the root-cause fix)

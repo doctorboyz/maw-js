@@ -6,9 +6,17 @@
  * (Apple's Local Network Privacy blocks Bun/Node fetch).
  *
  * Auto-signs requests with HMAC-SHA256 when federationToken is configured.
+ *
+ * v3 from-signing (#804 Step 4 SIGN): callers pass `from: "<oracle>:<node>"`
+ * (or `from: "auto"` to derive from `config.oracle ?? "mawjs"` + `config.node`).
+ * When set, the request additionally carries the v3 header set
+ * (`X-Maw-From`, `X-Maw-Signature-V3`, `X-Maw-Auth-Version: v3`) keyed
+ * by the local peer-key on top of the v2 token signature. Both layers
+ * coexist on the wire so v2-only verifiers stay green during rollout.
  */
 
-import { signHeaders } from "../../lib/federation-auth";
+import { signHeaders, signHeadersV3, resolveFromAddress } from "../../lib/federation-auth";
+import { getPeerKey } from "../../lib/peer-key";
 import { loadConfig } from "../../config";
 
 const IS_MACOS = process.platform === "darwin";
@@ -30,16 +38,60 @@ export async function curlFetch(url: string, opts?: {
   body?: string;
   timeout?: number;
   maxBytes?: number;
+  /**
+   * v3 from-signing (#804 Step 4 SIGN). Pass an explicit `<oracle>:<node>`
+   * string when the caller already knows the sender, or `"auto"` to derive
+   * `<config.oracle ?? "mawjs">:<config.node>`. When set and resolvable,
+   * the request stacks the v3 headers (`X-Maw-From`, `X-Maw-Signature-V3`,
+   * `X-Maw-Auth-Version: v3`) on top of any v2 token-signed headers so the
+   * peer can authenticate against its TOFU pubkey cache (Step 2).
+   *
+   * `"auto"` silently skips signing when no `node` is configured — that
+   * posture is single-node, no fleet, no v3 anchor. Explicit-string mode
+   * never silently skips: the caller asserted an identity and signing must
+   * succeed or fail loud (see the throws in signRequestV3).
+   */
+  from?: string | "auto";
 }): Promise<CurlResponse> {
   // Build auth headers
   const headers: Record<string, string> = {};
   if (opts?.body) headers["Content-Type"] = "application/json";
   try {
-    const token = loadConfig().federationToken;
+    const config = loadConfig();
+    const token = config.federationToken;
+    const urlObj = new URL(url);
     if (token) {
-      const urlObj = new URL(url);
+      // v1/v2 token signing — left intentionally body-less (v1) for now to
+      // preserve byte-for-byte compatibility with the existing wire format.
+      // Tightening to v2 (body-bound) is a separate decision tracked under
+      // the federation-audit follow-ups; v3 below is what we add here.
       const signed = signHeaders(token, opts?.method || "GET", urlObj.pathname);
       Object.assign(headers, signed);
+    }
+    // v3 from-signing layer (#804 Step 4 SIGN). Stacks on top of v2 — both
+    // signatures bind the SAME `X-Maw-Timestamp` because signHeadersV3
+    // emits its own ts (we re-use it here by passing through). Verifier
+    // (Step 4 VERIFY) picks the v3 slot first; falls back to v2 token if
+    // the sender is uncached / v3 absent.
+    if (opts?.from) {
+      const fromAddress = opts.from === "auto"
+        ? resolveFromAddress({ oracle: config.oracle, node: config.node })
+        : opts.from;
+      if (fromAddress) {
+        const peerKey = getPeerKey();
+        const v3 = signHeadersV3({
+          peerKey,
+          fromAddress,
+          method: opts?.method || "GET",
+          path: urlObj.pathname,
+          body: opts?.body,
+        });
+        // v2 also wrote X-Maw-Timestamp + X-Maw-Auth-Version above. v3's
+        // header overrides X-Maw-Auth-Version → "v3" so the verifier looks
+        // at the v3 slot. The shared timestamp is fine — both signatures
+        // bind the same instant.
+        Object.assign(headers, v3);
+      }
     }
   } catch (err) {
     // Fail closed: if a token is configured but signing throws (config load
