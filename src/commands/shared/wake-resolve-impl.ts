@@ -49,7 +49,10 @@ export async function resolveFromWorktrees(
   };
 }
 
-export async function resolveOracle(oracle: string): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
+export async function resolveOracle(
+  oracle: string,
+  opts?: { allLocal?: boolean },
+): Promise<{ repoPath: string; repoName: string; parentDir: string }> {
   const ghqHit = await ghqFind(`/${oracle}-oracle`);
   if (ghqHit) {
     const repoPath = ghqHit;
@@ -61,7 +64,7 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
   try {
     for (const file of readdirSync(FLEET_DIR).filter(f => f.endsWith(".json"))) {
       const config = JSON.parse(readFileSync(join(FLEET_DIR, file), "utf-8")) as FleetSession;
-      const win = (config.windows || []).find((w: FleetWindow) => w.name === `${oracle}-oracle`);
+      const win = (config.windows || []).find((w: FleetWindow) => w.name === `${oracle}-oracle` || w.name === oracle);
       if (win?.repo) {
         const fullPath = await ghqFind(`/${win.repo.replace(/^[^/]+\//, "")}`);
         if (fullPath) {
@@ -159,7 +162,7 @@ export async function resolveOracle(oracle: string): Promise<{ repoPath: string;
 
   // Scan suggest: offer interactive org scan when all silent resolution paths fail
   try {
-    const scanned = await scanSuggestOracle(oracle);
+    const scanned = await scanSuggestOracle(oracle, { allLocal: opts?.allLocal });
     if (scanned) return scanned;
   } catch { /* scan suggest failed — fall through to original error */ }
 
@@ -186,10 +189,29 @@ export function resolveFleetSession(oracle: string): string | null {
   return null;
 }
 
-export async function detectSession(oracle: string): Promise<string | null> {
+export async function detectSession(oracle: string, urlRepoName?: string): Promise<string | null> {
   const sessions = await tmux.listSessions();
   const mapped = getSessionMap()[oracle];
   if (mapped && sessions.find(s => s.name === mapped)) return mapped;
+
+  // #769 — URL/slug input expresses the FULL repo intent (e.g. "m5-oracle").
+  // The bare `oracle` is the stripped form ("m5"), and falling through to the
+  // generic suffix match would greedily hit unrelated `*-m5` sessions
+  // (`01-maw-m5`, `04-ollama-m5`). Match strictly on the full repo name; if
+  // none, return null so the caller auto-creates a session named after it.
+  if (urlRepoName) {
+    const exact = sessions.find(s => s.name === urlRepoName || s.name === oracle);
+    if (exact) return exact.name;
+    const numbered = sessions.filter(s => /^\d+-/.test(s.name) && s.name.endsWith(`-${urlRepoName}`));
+    if (numbered.length === 1) return numbered[0]!.name;
+    if (numbered.length > 1) {
+      console.error(`\x1b[31merror\x1b[0m: '${urlRepoName}' is ambiguous — matches ${numbered.length} fleet sessions:`);
+      for (const s of numbered) console.error(`\x1b[90m    • ${s.name}\x1b[0m`);
+      console.error(`\x1b[90m  use the full name: maw wake <exact-session>\x1b[0m`);
+      process.exit(1);
+    }
+    return null;
+  }
 
   // Numeric-prefixed fleet sessions get first dibs — "110-yeast" beats a bare
   // "yeast" or an ephemeral "yeast-view" when the user types "yeast". If two
