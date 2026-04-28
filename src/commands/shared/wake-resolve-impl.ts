@@ -262,8 +262,12 @@ export async function setSessionEnv(session: string): Promise<void> {
 }
 
 export function sanitizeBranchName(name: string): string {
+  // #823 Bug A — greedy strip of leading/trailing dashes/dots so unknown CLI
+  // flags that leak into the positional slot (e.g. "--no-attach") sanitize to
+  // "no-attach" rather than the half-stripped "-no-attach", which then
+  // becomes a corrupted worktree name "1--no-attach" downstream.
   return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9._\-]/g, "")
-    .replace(/\.{2,}/g, ".").replace(/^[-.]|[-.]$/g, "").slice(0, 50);
+    .replace(/\.{2,}/g, ".").replace(/^[-.]+|[-.]+$/g, "").slice(0, 50);
 }
 
 // Wake target parsing (parseWakeTarget, ensureCloned) is in wake-target.ts
