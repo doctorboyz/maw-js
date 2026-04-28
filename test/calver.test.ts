@@ -5,9 +5,10 @@ import {
   dateBase,
   effectiveBase,
   extractBaseFromVersion,
-  maxAlphaFromTags,
-  maxNFromPackageJson,
-  maxNFromTags,
+  maxLetterInHour,
+  maxLetterInHourFromPackageJson,
+  parseSuffix,
+  renderSuffix,
 } from "../scripts/calver";
 
 describe("calver dateBase", () => {
@@ -18,339 +19,352 @@ describe("calver dateBase", () => {
   });
 });
 
-describe("calver maxAlphaFromTags", () => {
-  it("returns -1 when no matching tags", () => {
-    expect(maxAlphaFromTags("26.4.18", [])).toBe(-1);
-    expect(maxAlphaFromTags("26.4.18", ["v26.4.17-alpha.5", "v26.4.19-alpha.0"])).toBe(-1);
+describe("calver parseSuffix (#858 hour-bucket + collision letter)", () => {
+  it("plain hour with no letter → letterIndex 0", () => {
+    expect(parseSuffix("0")).toEqual({ hour: 0, letterIndex: 0 });
+    expect(parseSuffix("12")).toEqual({ hour: 12, letterIndex: 0 });
+    expect(parseSuffix("23")).toEqual({ hour: 23, letterIndex: 0 });
   });
 
-  it("returns max N across matching alpha tags", () => {
-    expect(
-      maxAlphaFromTags("26.4.27", ["v26.4.27-alpha.11", "v26.4.27-alpha.12", "v26.4.27-alpha.13"])
-    ).toBe(13);
+  it("letter b → letterIndex 1, ..., z → 25", () => {
+    expect(parseSuffix("16b")).toEqual({ hour: 16, letterIndex: 1 });
+    expect(parseSuffix("16c")).toEqual({ hour: 16, letterIndex: 2 });
+    expect(parseSuffix("16z")).toEqual({ hour: 16, letterIndex: 25 });
   });
 
-  it("handles non-monotonic tag order", () => {
-    expect(
-      maxAlphaFromTags("26.4.27", ["v26.4.27-alpha.13", "v26.4.27-alpha.0", "v26.4.27-alpha.7"])
-    ).toBe(13);
+  it("rejects letter 'a' (reserved for plain hour)", () => {
+    expect(parseSuffix("16a")).toBeNull();
   });
 
-  it("ignores tags with non-integer suffixes (e.g. two-tier alpha.12.0)", () => {
-    expect(
-      maxAlphaFromTags("26.4.27", ["v26.4.27-alpha.5", "v26.4.27-alpha.12.0"])
-    ).toBe(5);
+  it("rejects out-of-range hour (legacy monotonic ≥ 24 must NOT poison)", () => {
+    expect(parseSuffix("24")).toBeNull();
+    expect(parseSuffix("25")).toBeNull();
+    expect(parseSuffix("99")).toBeNull();
   });
 
-  it("handles single-digit and multi-digit N", () => {
-    expect(maxAlphaFromTags("26.4.18", ["v26.4.18-alpha.0"])).toBe(0);
-    expect(maxAlphaFromTags("26.4.18", ["v26.4.18-alpha.99"])).toBe(99);
-  });
-});
-
-describe("calver computeVersion", () => {
-  const apr18_0937 = new Date(2026, 3, 18, 9, 37);
-  const apr27_1200 = new Date(2026, 3, 27, 12, 0);
-  const jan1_0005  = new Date(2027, 0, 1, 0, 5);
-
-  it("stable: yy.m.d (ignores tags)", () => {
-    expect(computeVersion({ stable: true, check: false, now: apr18_0937 })).toBe("26.4.18");
-    expect(computeVersion({ stable: true, check: false, now: jan1_0005 })).toBe("27.1.1");
-  });
-
-  it("alpha: starts at 0 when no tags exist for today", () => {
-    expect(computeVersion({ stable: false, check: false, now: apr18_0937 }, [])).toBe("26.4.18-alpha.0");
-    expect(computeVersion({ stable: false, check: false, now: jan1_0005 }, [])).toBe("27.1.1-alpha.0");
-  });
-
-  it("alpha: bumps to max+1 from existing today's tags", () => {
-    const tags = ["v26.4.27-alpha.11", "v26.4.27-alpha.12"];
-    expect(computeVersion({ stable: false, check: false, now: apr27_1200 }, tags)).toBe("26.4.27-alpha.13");
-  });
-
-  it("alpha: ignores tags from other dates", () => {
-    const tags = ["v26.4.26-alpha.99", "v26.4.28-alpha.50"];
-    expect(computeVersion({ stable: false, check: false, now: apr27_1200 }, tags)).toBe("26.4.27-alpha.0");
-  });
-
-  it("--stable ignores tags entirely", () => {
-    const tags = ["v26.4.27-alpha.99"];
-    expect(computeVersion({ stable: true, channel: "alpha", check: false, now: apr27_1200 }, tags)).toBe("26.4.27");
+  it("rejects multi-letter / non [b-z] / non-letter suffixes", () => {
+    expect(parseSuffix("16ab")).toBeNull();
+    expect(parseSuffix("16BB")).toBeNull(); // case-sensitive
+    expect(parseSuffix("16-rc")).toBeNull();
+    expect(parseSuffix("16.0")).toBeNull();
+    expect(parseSuffix("16.b")).toBeNull();
+    expect(parseSuffix("foo")).toBeNull();
+    expect(parseSuffix("")).toBeNull();
   });
 });
 
-describe("calver beta channel (#754)", () => {
-  const apr28 = new Date(2026, 3, 28, 12, 0);
-
-  it("maxNFromTags isolates alpha and beta counters", () => {
-    const tags = [
-      "v26.4.28-alpha.0",
-      "v26.4.28-alpha.1",
-      "v26.4.28-beta.0",
-    ];
-    expect(maxNFromTags("26.4.28", "alpha", tags)).toBe(1);
-    expect(maxNFromTags("26.4.28", "beta", tags)).toBe(0);
+describe("calver renderSuffix", () => {
+  it("letterIndex 0 → plain hour", () => {
+    expect(renderSuffix(0, 0)).toBe("0");
+    expect(renderSuffix(16, 0)).toBe("16");
   });
 
-  it("maxAlphaFromTags is a back-compat alias for alpha channel", () => {
-    const tags = ["v26.4.28-alpha.5", "v26.4.28-beta.99"];
-    expect(maxAlphaFromTags("26.4.28", tags)).toBe(5);
+  it("letterIndex 1 → 'b', 2 → 'c', ..., 25 → 'z'", () => {
+    expect(renderSuffix(16, 1)).toBe("16b");
+    expect(renderSuffix(16, 2)).toBe("16c");
+    expect(renderSuffix(16, 25)).toBe("16z");
   });
 
-  it("--beta computes next beta version with independent counter", () => {
-    const tags = ["v26.4.28-alpha.21", "v26.4.28-beta.2"];
-    expect(
-      computeVersion({ stable: false, channel: "beta", check: false, now: apr28 }, tags)
-    ).toBe("26.4.28-beta.3");
+  it("throws on overflow (cap is letterIndex 25)", () => {
+    expect(() => renderSuffix(16, 26)).toThrow(/overflow/i);
+    expect(() => renderSuffix(16, -1)).toThrow(/overflow/i);
   });
 
-  it("--beta starts at 0 when no beta tags exist for today", () => {
-    const tags = ["v26.4.28-alpha.50"];
-    expect(
-      computeVersion({ stable: false, channel: "beta", check: false, now: apr28 }, tags)
-    ).toBe("26.4.28-beta.0");
-  });
-
-  it("alpha and beta on the same day do not collide", () => {
-    const tags = ["v26.4.28-alpha.5"];
-    const alpha = computeVersion({ stable: false, channel: "alpha", check: false, now: apr28 }, tags);
-    const beta = computeVersion({ stable: false, channel: "beta", check: false, now: apr28 }, tags);
-    expect(alpha).toBe("26.4.28-alpha.6");
-    expect(beta).toBe("26.4.28-beta.0");
-  });
-
-  it("beta tag walk rejects two-tier suffixes (e.g. beta.12.0)", () => {
-    const tags = ["v26.4.28-beta.5", "v26.4.28-beta.12.0"];
-    expect(maxNFromTags("26.4.28", "beta", tags)).toBe(5);
+  it("round-trip: parseSuffix(renderSuffix(h, n)) === { h, n }", () => {
+    for (const h of [0, 5, 16, 23]) {
+      for (const n of [0, 1, 12, 25]) {
+        expect(parseSuffix(renderSuffix(h, n))).toEqual({ hour: h, letterIndex: n });
+      }
+    }
   });
 });
 
-describe("calver maxNFromPackageJson (#784)", () => {
-  it("returns N for matching alpha base+channel", () => {
-    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-alpha.24")).toBe(24);
-    expect(maxNFromPackageJson("26.4.28", "alpha", "v26.4.28-alpha.7")).toBe(7);
+describe("calver maxLetterInHour", () => {
+  it("returns -1 when no matching tags for the hour", () => {
+    expect(maxLetterInHour("26.4.29", "alpha", 16, [])).toBe(-1);
+    expect(
+      maxLetterInHour("26.4.29", "alpha", 16, ["v26.4.29-alpha.10", "v26.4.28-alpha.16"]),
+    ).toBe(-1);
   });
 
-  it("returns N for matching beta base+channel", () => {
-    expect(maxNFromPackageJson("26.4.28", "beta", "26.4.28-beta.3")).toBe(3);
+  it("plain hour bucket → letterIndex 0", () => {
+    expect(maxLetterInHour("26.4.29", "alpha", 16, ["v26.4.29-alpha.16"])).toBe(0);
   });
 
-  it("returns -1 when date base does not match", () => {
-    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.27-alpha.99")).toBe(-1);
-    expect(maxNFromPackageJson("26.4.28", "alpha", "26.5.1-alpha.0")).toBe(-1);
+  it("walks letter sequence and returns max", () => {
+    const tags = ["v26.4.29-alpha.16", "v26.4.29-alpha.16b", "v26.4.29-alpha.16c"];
+    expect(maxLetterInHour("26.4.29", "alpha", 16, tags)).toBe(2);
+  });
+
+  it("non-monotonic tag order doesn't matter", () => {
+    const tags = ["v26.4.29-alpha.16c", "v26.4.29-alpha.16", "v26.4.29-alpha.16b"];
+    expect(maxLetterInHour("26.4.29", "alpha", 16, tags)).toBe(2);
+  });
+
+  it("isolates by hour — other-hour tags don't count", () => {
+    const tags = ["v26.4.29-alpha.16", "v26.4.29-alpha.17", "v26.4.29-alpha.17b"];
+    expect(maxLetterInHour("26.4.29", "alpha", 16, tags)).toBe(0);
+    expect(maxLetterInHour("26.4.29", "alpha", 17, tags)).toBe(1);
+  });
+
+  it("isolates alpha and beta", () => {
+    const tags = ["v26.4.29-alpha.16b", "v26.4.29-beta.16"];
+    expect(maxLetterInHour("26.4.29", "alpha", 16, tags)).toBe(1);
+    expect(maxLetterInHour("26.4.29", "beta", 16, tags)).toBe(0);
+  });
+
+  it("legacy monotonic tags ≥ 24 are rejected (don't poison)", () => {
+    // From the pre-#858 monotonic counter: v26.4.29-alpha.24 etc. could exist.
+    // parseSuffix rejects hour=24+, so these don't claim any bucket.
+    const tags = ["v26.4.29-alpha.24", "v26.4.29-alpha.99"];
+    for (let h = 0; h < 24; h++) {
+      expect(maxLetterInHour("26.4.29", "alpha", h, tags)).toBe(-1);
+    }
+  });
+
+  it("legacy monotonic tag ≤ 23 coexists as a same-hour collision", () => {
+    // A tag like v26.4.29-alpha.21 from monotonic-era IS legitimately the
+    // 21:xx hour bucket today. Treat it as a collision when bumping in 21.
+    const tags = ["v26.4.29-alpha.21"];
+    expect(maxLetterInHour("26.4.29", "alpha", 21, tags)).toBe(0); // claim plain
+    expect(maxLetterInHour("26.4.29", "alpha", 18, tags)).toBe(-1); // hour 18 free
+  });
+
+  it("rejects two-tier or malformed suffixes", () => {
+    const tags = ["v26.4.29-alpha.16.0", "v26.4.29-alpha.16-rc", "v26.4.29-alpha.16ab"];
+    expect(maxLetterInHour("26.4.29", "alpha", 16, tags)).toBe(-1);
+  });
+
+  it("ignores tags from other dates", () => {
+    const tags = ["v26.4.28-alpha.16z"];
+    expect(maxLetterInHour("26.4.29", "alpha", 16, tags)).toBe(-1);
+  });
+});
+
+describe("calver maxLetterInHourFromPackageJson", () => {
+  it("returns letterIndex for matching base/channel/hour", () => {
+    expect(maxLetterInHourFromPackageJson("26.4.29", "alpha", 16, "26.4.29-alpha.16")).toBe(0);
+    expect(maxLetterInHourFromPackageJson("26.4.29", "alpha", 16, "26.4.29-alpha.16b")).toBe(1);
+    expect(maxLetterInHourFromPackageJson("26.4.29", "alpha", 16, "v26.4.29-alpha.16c")).toBe(2);
+  });
+
+  it("returns -1 when hour does not match", () => {
+    expect(maxLetterInHourFromPackageJson("26.4.29", "alpha", 17, "26.4.29-alpha.16")).toBe(-1);
+    expect(maxLetterInHourFromPackageJson("26.4.29", "alpha", 16, "26.4.29-alpha.17b")).toBe(-1);
   });
 
   it("returns -1 when channel does not match", () => {
-    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-beta.5")).toBe(-1);
-    expect(maxNFromPackageJson("26.4.28", "beta", "26.4.28-alpha.5")).toBe(-1);
+    expect(maxLetterInHourFromPackageJson("26.4.29", "alpha", 16, "26.4.29-beta.16")).toBe(-1);
+    expect(maxLetterInHourFromPackageJson("26.4.29", "beta", 16, "26.4.29-alpha.16")).toBe(-1);
   });
 
-  it("rejects non-integer suffix (e.g. two-tier alpha.12.0 or alpha.12-rc)", () => {
-    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-alpha.12.0")).toBe(-1);
-    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-alpha.12-rc")).toBe(-1);
-    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-alpha.abc")).toBe(-1);
+  it("returns -1 when base does not match", () => {
+    expect(maxLetterInHourFromPackageJson("26.4.29", "alpha", 16, "26.4.28-alpha.16")).toBe(-1);
   });
 
-  it("returns -1 for empty or stable-only version strings", () => {
-    expect(maxNFromPackageJson("26.4.28", "alpha", "")).toBe(-1);
-    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28")).toBe(-1);
+  it("returns -1 for empty / stable / malformed", () => {
+    expect(maxLetterInHourFromPackageJson("26.4.29", "alpha", 16, "")).toBe(-1);
+    expect(maxLetterInHourFromPackageJson("26.4.29", "alpha", 16, "26.4.29")).toBe(-1);
+    expect(maxLetterInHourFromPackageJson("26.4.29", "alpha", 16, "26.4.29-alpha.")).toBe(-1);
+    expect(maxLetterInHourFromPackageJson("26.4.29", "alpha", 16, "26.4.29-alpha.bogus")).toBe(-1);
+  });
+
+  it("rejects legacy monotonic ≥ 24 (for hour-mismatch reason)", () => {
+    // alpha.99 cannot match any hour bucket — parseSuffix returns null.
+    for (let h = 0; h < 24; h++) {
+      expect(maxLetterInHourFromPackageJson("26.4.29", "alpha", h, "26.4.29-alpha.99")).toBe(-1);
+    }
   });
 });
 
-describe("calver computeVersion package.json walk (#784)", () => {
+describe("calver computeVersion (hour-bucket)", () => {
+  // Date constructor uses 0-indexed months. (2026, 3, 29, 16, 0) = April 29, 16:00.
+  const apr29_1600 = new Date(2026, 3, 29, 16, 0);
+  const apr29_0900 = new Date(2026, 3, 29, 9, 0);
+  const jan1_0005 = new Date(2027, 0, 1, 0, 5);
+
+  it("stable: yy.m.d (ignores tags + hour)", () => {
+    expect(computeVersion({ stable: true, check: false, now: apr29_1600 })).toBe("26.4.29");
+    expect(computeVersion({ stable: true, check: false, now: jan1_0005 })).toBe("27.1.1");
+  });
+
+  it("alpha: plain hour when no tags exist for current hour", () => {
+    expect(computeVersion({ stable: false, check: false, now: apr29_1600 }, [])).toBe(
+      "26.4.29-alpha.16",
+    );
+    expect(computeVersion({ stable: false, check: false, now: apr29_0900 }, [])).toBe(
+      "26.4.29-alpha.9",
+    );
+  });
+
+  it("alpha: collision adds 'b'", () => {
+    const tags = ["v26.4.29-alpha.16"];
+    expect(computeVersion({ stable: false, check: false, now: apr29_1600 }, tags)).toBe(
+      "26.4.29-alpha.16b",
+    );
+  });
+
+  it("alpha: 'b' + 'c' + ... up to 'z'", () => {
+    const baseTag = "v26.4.29-alpha.";
+    const tags = [
+      baseTag + "16",
+      baseTag + "16b",
+      baseTag + "16c",
+      baseTag + "16d",
+    ];
+    expect(computeVersion({ stable: false, check: false, now: apr29_1600 }, tags)).toBe(
+      "26.4.29-alpha.16e",
+    );
+  });
+
+  it("alpha: 26-release-per-hour cap throws", () => {
+    const tags: string[] = ["v26.4.29-alpha.16"];
+    for (let i = 1; i <= 25; i++) {
+      const letter = String.fromCharCode("a".charCodeAt(0) + i); // b..z
+      tags.push("v26.4.29-alpha.16" + letter);
+    }
+    expect(() => computeVersion({ stable: false, check: false, now: apr29_1600 }, tags)).toThrow(
+      /overflow/i,
+    );
+  });
+
+  it("alpha: other-hour tags don't affect current hour", () => {
+    const tags = ["v26.4.29-alpha.0", "v26.4.29-alpha.0b", "v26.4.29-alpha.17"];
+    expect(computeVersion({ stable: false, check: false, now: apr29_1600 }, tags)).toBe(
+      "26.4.29-alpha.16",
+    );
+  });
+
+  it("alpha: ignores tags from other dates", () => {
+    const tags = ["v26.4.28-alpha.16z", "v26.4.30-alpha.16"];
+    expect(computeVersion({ stable: false, check: false, now: apr29_1600 }, tags)).toBe(
+      "26.4.29-alpha.16",
+    );
+  });
+
+  it("--hour override picks bucket explicitly", () => {
+    expect(
+      computeVersion({ stable: false, hour: 14, check: false, now: apr29_1600 }, []),
+    ).toBe("26.4.29-alpha.14");
+    expect(
+      computeVersion(
+        { stable: false, hour: 14, check: false, now: apr29_1600 },
+        ["v26.4.29-alpha.14"],
+      ),
+    ).toBe("26.4.29-alpha.14b");
+  });
+
+  it("--stable ignores tags + hour entirely", () => {
+    const tags = ["v26.4.29-alpha.16z"];
+    expect(
+      computeVersion({ stable: true, channel: "alpha", check: false, now: apr29_1600 }, tags),
+    ).toBe("26.4.29");
+  });
+});
+
+describe("calver beta channel (#754) under hour-bucket", () => {
+  const apr29_1600 = new Date(2026, 3, 29, 16, 0);
+
+  it("alpha and beta hour-buckets are independent", () => {
+    const tags = ["v26.4.29-alpha.16", "v26.4.29-alpha.16b"];
+    const alpha = computeVersion(
+      { stable: false, channel: "alpha", check: false, now: apr29_1600 },
+      tags,
+    );
+    const beta = computeVersion(
+      { stable: false, channel: "beta", check: false, now: apr29_1600 },
+      tags,
+    );
+    expect(alpha).toBe("26.4.29-alpha.16c");
+    expect(beta).toBe("26.4.29-beta.16"); // beta space is empty
+  });
+
+  it("--beta with prior beta tags collides correctly", () => {
+    const tags = ["v26.4.29-alpha.16z", "v26.4.29-beta.16", "v26.4.29-beta.16b"];
+    expect(
+      computeVersion({ stable: false, channel: "beta", check: false, now: apr29_1600 }, tags),
+    ).toBe("26.4.29-beta.16c");
+  });
+});
+
+describe("calver computeVersion package.json walk (hour-bucket)", () => {
+  const apr29_1600 = new Date(2026, 3, 29, 16, 0);
+  const apr30_0500 = new Date(2026, 3, 30, 5, 0);
+
+  it("package.json sets the only collision in this hour", () => {
+    expect(
+      computeVersion({ stable: false, check: false, now: apr29_1600 }, [], "26.4.29-alpha.16"),
+    ).toBe("26.4.29-alpha.16b");
+  });
+
+  it("tags + package.json: take the max collision", () => {
+    const tags = ["v26.4.29-alpha.16b"];
+    expect(
+      computeVersion({ stable: false, check: false, now: apr29_1600 }, tags, "26.4.29-alpha.16"),
+    ).toBe("26.4.29-alpha.16c");
+  });
+
+  it("date roll: clock advances → fresh hour-bucket starts at plain hh", () => {
+    expect(
+      computeVersion({ stable: false, check: false, now: apr30_0500 }, [], "26.4.29-alpha.18z"),
+    ).toBe("26.4.30-alpha.5");
+  });
+
+  it("post-stable bare YY.M.D in package.json: fresh bucket on that date", () => {
+    expect(
+      computeVersion({ stable: false, check: false, now: apr29_1600 }, [], "26.4.29"),
+    ).toBe("26.4.29-alpha.16");
+  });
+
+  it("legacy monotonic in package.json (alpha.23 from #766 era) does not poison", () => {
+    // hour=23 → that legacy tag IS a hour-23 plain-bucket claim, so a 23:xx
+    // bump becomes 23b. But for any non-23 hour the legacy tag is irrelevant.
+    expect(
+      computeVersion({ stable: false, check: false, now: apr29_1600 }, [], "26.4.29-alpha.23"),
+    ).toBe("26.4.29-alpha.16");
+    // And during the 23:00 hour:
+    const apr29_2300 = new Date(2026, 3, 29, 23, 0);
+    expect(
+      computeVersion({ stable: false, check: false, now: apr29_2300 }, [], "26.4.29-alpha.23"),
+    ).toBe("26.4.29-alpha.23b");
+  });
+});
+
+describe("calver future-dated package.json (#819 still applies)", () => {
   const apr28_1200 = new Date(2026, 3, 28, 12, 0);
 
-  it("package.json ahead of tags wins (alpha-branch case from #784)", () => {
-    // Simulates current bug: no tags exist yet for today (alpha branch),
-    // but package.json carries 26.4.28-alpha.24 from prior in-flight alphas.
-    expect(
-      computeVersion({ stable: false, check: false, now: apr28_1200 }, [], "26.4.28-alpha.24"),
-    ).toBe("26.4.28-alpha.25");
-  });
-
-  it("tags ahead of package.json wins", () => {
-    const tags = ["v26.4.28-alpha.30"];
-    expect(
-      computeVersion({ stable: false, check: false, now: apr28_1200 }, tags, "26.4.28-alpha.10"),
-    ).toBe("26.4.28-alpha.31");
-  });
-
-  it("tags and package.json at same value still increments by 1", () => {
-    const tags = ["v26.4.28-alpha.5"];
-    expect(
-      computeVersion({ stable: false, check: false, now: apr28_1200 }, tags, "26.4.28-alpha.5"),
-    ).toBe("26.4.28-alpha.6");
-  });
-
-  it("daily rollover: yesterday's package.json + no today-tags → .0", () => {
-    // Critical: without date-gating, every day would start at yesterday's N+1
-    // instead of resetting to 0. Verifies date-mismatch returns -1 from pkg-walk.
-    expect(
-      computeVersion({ stable: false, check: false, now: apr28_1200 }, [], "26.4.27-alpha.50"),
-    ).toBe("26.4.28-alpha.0");
-  });
-
-  it("yesterday's stable in package.json + today's no-tags → .0", () => {
-    // After a stable cut, package.json holds bare YY.M.D. Next-day alpha
-    // starts at .0, not at the stable's "version".
-    expect(
-      computeVersion({ stable: false, check: false, now: apr28_1200 }, [], "26.4.27"),
-    ).toBe("26.4.28-alpha.0");
-  });
-});
-
-describe("calver maxNFromPackageJson — robustness (#784 explorer findings)", () => {
-  it("rejects non-CalVer legacy version (e.g. 2.0.0-alpha.134)", () => {
-    // Pre-CalVer migration shape — the trailing 134 must NOT match.
-    expect(maxNFromPackageJson("26.4.28", "alpha", "2.0.0-alpha.134")).toBe(-1);
-  });
-
-  it("substring trap: base 26.4.2 must not match 26.4.28-alpha.N", () => {
-    // The dash boundary in `${base}-${channel}.` should anchor the match
-    // so a shorter base doesn't fall through into a longer date.
-    expect(maxNFromPackageJson("26.4.2", "alpha", "26.4.28-alpha.5")).toBe(-1);
-    expect(maxNFromPackageJson("26.4.2", "alpha", "26.4.20-alpha.5")).toBe(-1);
-    // Genuine match still works for the actual base 26.4.2:
-    expect(maxNFromPackageJson("26.4.2", "alpha", "26.4.2-alpha.5")).toBe(5);
-  });
-
-  it("rejects malformed alpha suffix in package.json", () => {
-    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-alpha.")).toBe(-1);
-    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-alpha")).toBe(-1);
-    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-alpha.bogus")).toBe(-1);
-    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-alpha.12b")).toBe(-1);
-  });
-
-  it("zero-padded N parses as decimal (parity with parseInt)", () => {
-    // Mirrors maxNFromTags's parseInt behavior — `05` → 5, not octal.
-    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-alpha.05")).toBe(5);
-  });
-
-  it("rejects rc/other channels even if structurally similar", () => {
-    expect(maxNFromPackageJson("26.4.28", "alpha", "26.4.28-rc.5")).toBe(-1);
-  });
-});
-
-describe("calver extractBaseFromVersion (#819)", () => {
-  it("strips alpha/beta suffix, returns YY.M.D", () => {
-    expect(extractBaseFromVersion("26.4.29-alpha.5")).toBe("26.4.29");
-    expect(extractBaseFromVersion("26.4.29-beta.0")).toBe("26.4.29");
-  });
-
-  it("accepts bare YY.M.D (post-stable-cut shape)", () => {
-    expect(extractBaseFromVersion("26.4.29")).toBe("26.4.29");
-    expect(extractBaseFromVersion("v26.4.29")).toBe("26.4.29");
-  });
-
-  it("accepts leading v prefix", () => {
-    expect(extractBaseFromVersion("v26.4.29-alpha.5")).toBe("26.4.29");
-  });
-
-  it("returns null for empty/missing", () => {
-    expect(extractBaseFromVersion("")).toBeNull();
-  });
-
-  it("returns null for non-CalVer legacy versions", () => {
-    expect(extractBaseFromVersion("2.0.0-alpha.134")).toBe("2.0.0"); // shape-OK
-    expect(extractBaseFromVersion("not-a-version")).toBeNull();
-    expect(extractBaseFromVersion("26.4")).toBeNull();
-    expect(extractBaseFromVersion("26.4.29.1")).toBeNull();
-  });
-});
-
-describe("calver compareBases (#819)", () => {
-  it("compares by integer segment, not lexicographic", () => {
-    // Lexicographic would say "26.4.30" < "26.4.4" — must compare ints.
-    expect(compareBases("26.4.30", "26.4.4")).toBeGreaterThan(0);
-    expect(compareBases("26.4.4", "26.4.30")).toBeLessThan(0);
-  });
-
-  it("equal bases return 0", () => {
-    expect(compareBases("26.4.28", "26.4.28")).toBe(0);
-  });
-
-  it("year and month dominate", () => {
-    expect(compareBases("27.1.1", "26.12.31")).toBeGreaterThan(0);
-    expect(compareBases("26.5.1", "26.4.99")).toBeGreaterThan(0);
-  });
-
-  it("throws on malformed input", () => {
-    expect(() => compareBases("26.4", "26.4.28")).toThrow();
-    expect(() => compareBases("26.4.28.1", "26.4.28")).toThrow();
-  });
-});
-
-describe("calver effectiveBase (#819)", () => {
-  it("picks package.json base when ahead of today", () => {
-    expect(effectiveBase("26.4.28", "26.4.29-alpha.5")).toBe("26.4.29");
-  });
-
-  it("picks today when package.json is behind", () => {
-    expect(effectiveBase("26.4.28", "26.4.27-alpha.99")).toBe("26.4.28");
-  });
-
-  it("picks today when bases are equal", () => {
-    expect(effectiveBase("26.4.28", "26.4.28-alpha.18")).toBe("26.4.28");
-  });
-
-  it("picks today when package.json is empty/unparseable", () => {
-    expect(effectiveBase("26.4.28", "")).toBe("26.4.28");
-    expect(effectiveBase("26.4.28", "not-a-version")).toBe("26.4.28");
-  });
-
-  it("handles bare future stable (post-cut shape, no suffix)", () => {
-    // Just-cut tomorrow's stable: package.json holds bare 26.4.30 with no suffix.
-    expect(effectiveBase("26.4.28", "26.4.30")).toBe("26.4.30");
-  });
-});
-
-describe("calver computeVersion future-dated package.json (#819)", () => {
-  const apr28_1200 = new Date(2026, 3, 28, 12, 0);
-  const apr29_0500 = new Date(2026, 3, 29, 5, 0);
-
-  it("future-dated alpha: continues counter on package.json's date (NOT downgrade)", () => {
-    // The exact bug from #819: package.json at 26.4.29-alpha.5, clock at
-    // 2026-04-28. Pre-fix this returned 26.4.28-alpha.0 (a downgrade).
+  it("future-dated alpha continues on package.json's date", () => {
+    // package.json at 26.4.29-alpha.5, clock at 2026-04-28 12:00.
+    // effectiveBase picks 26.4.29; bump should claim hour=12 on that date.
     expect(
       computeVersion({ stable: false, check: false, now: apr28_1200 }, [], "26.4.29-alpha.5"),
-    ).toBe("26.4.29-alpha.6");
+    ).toBe("26.4.29-alpha.12");
   });
 
-  it("today-dated alpha: existing tag-walk behavior preserved", () => {
-    expect(
-      computeVersion({ stable: false, check: false, now: apr28_1200 }, [], "26.4.28-alpha.18"),
-    ).toBe("26.4.28-alpha.19");
-  });
-
-  it("date roll: clock advances past package.json → resets to .0", () => {
-    // Clock is 26.4.29, package.json still at 26.4.28-alpha.18 → .0 fresh day.
-    expect(
-      computeVersion({ stable: false, check: false, now: apr29_0500 }, [], "26.4.28-alpha.18"),
-    ).toBe("26.4.29-alpha.0");
-  });
-
-  it("just-cut stable in package.json: bare YY.M.D → alpha.0 on that date", () => {
-    // After --stable cut, package.json holds bare 26.4.30. Today's clock still
-    // 26.4.28 — must NOT regress to 26.4.28-alpha.0; bumps the future date.
-    expect(
-      computeVersion({ stable: false, check: false, now: apr28_1200 }, [], "26.4.30"),
-    ).toBe("26.4.30-alpha.0");
-  });
-
-  it("future-dated + tags for that future date: tags also count", () => {
-    // If the stable-cut day already saw alphas before the cut tagged some,
-    // and package.json holds 26.4.29-alpha.3 plus tags up to alpha.7 exist
-    // for 26.4.29 — bump to alpha.8.
-    const tags = ["v26.4.29-alpha.7"];
-    expect(
-      computeVersion({ stable: false, check: false, now: apr28_1200 }, tags, "26.4.29-alpha.3"),
-    ).toBe("26.4.29-alpha.8");
-  });
-
-  it("--stable always uses today's clock, never package.json's future date", () => {
-    // Defensive: if package.json is somehow ahead, --stable still cuts today.
+  it("--stable always uses today's clock", () => {
     expect(
       computeVersion({ stable: true, check: false, now: apr28_1200 }, [], "26.4.29-alpha.5"),
     ).toBe("26.4.28");
+  });
+});
+
+describe("calver extractBaseFromVersion + compareBases + effectiveBase (#819 unchanged)", () => {
+  it("strips hour-bucket suffix variants too", () => {
+    expect(extractBaseFromVersion("26.4.29-alpha.16")).toBe("26.4.29");
+    expect(extractBaseFromVersion("26.4.29-alpha.16b")).toBe("26.4.29");
+    expect(extractBaseFromVersion("26.4.29-alpha.16z")).toBe("26.4.29");
+    expect(extractBaseFromVersion("v26.4.29")).toBe("26.4.29");
+  });
+
+  it("compareBases by integer segment (regression coverage)", () => {
+    expect(compareBases("26.4.30", "26.4.4")).toBeGreaterThan(0);
+    expect(compareBases("26.4.4", "26.4.30")).toBeLessThan(0);
+    expect(compareBases("27.1.1", "26.12.31")).toBeGreaterThan(0);
+  });
+
+  it("effectiveBase picks future package.json over today's clock", () => {
+    expect(effectiveBase("26.4.28", "26.4.29-alpha.16b")).toBe("26.4.29");
+    expect(effectiveBase("26.4.30", "26.4.28-alpha.16b")).toBe("26.4.30");
+    expect(effectiveBase("26.4.28", "")).toBe("26.4.28");
   });
 });
