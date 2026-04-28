@@ -16,6 +16,20 @@
  *     binds the signature to the exact bytes sent. Body-swap replay is 401.
  *   - Version is signaled via `X-Maw-Auth-Version: v2` header. Absent header
  *     = v1 (for outbound: signHeaders without body; for inbound: legacy peer).
+ *
+ * v3 — from: + per-peer pubkey signing (Step 4 SIGN of #804):
+ *   - ADDITIVE on top of v1/v2. Outgoing requests carry the v2 token-signed
+ *     headers AND, when the sender knows its `<oracle>:<node>` identity,
+ *     a second signature keyed by the per-peer key (src/lib/peer-key.ts).
+ *     The verifier (Step 4 VERIFY) reads `X-Maw-From` to look the sender
+ *     up in its TOFU pubkey cache (Step 2) and authenticates the v3 sig
+ *     against the pinned pubkey. v1/v2 remains for non-fleet peers.
+ *   - Headers: `X-Maw-From`, `X-Maw-Signature-V3`, `X-Maw-Auth-Version: v3`.
+ *     Reuses the v2 `X-Maw-Timestamp` (numeric seconds) and the v2
+ *     `WINDOW_SEC` ±5 min skew window. No new clock primitive.
+ *   - Payload: `METHOD:PATH:TIMESTAMP:BODY_SHA256:FROM` — extends the v2
+ *     colon-shape with the `<oracle>:<node>` from-address appended. Body
+ *     hash is mandatory in v3 (no v1 body-unsigned escape).
  */
 
 import { createHash, createHmac, timingSafeEqual } from "crypto";
@@ -120,6 +134,91 @@ export function signHeaders(
   };
   if (bh) headers["X-Maw-Auth-Version"] = "v2";
   return headers;
+}
+
+// --- v3 from-signing (#804 Step 4 SIGN) ---
+
+/** Default oracle name when `config.oracle` is not set (single-tenant fallback). */
+export const DEFAULT_ORACLE = "mawjs";
+
+/**
+ * Compute the v3 HMAC over the canonical payload — split out so callers (and
+ * the verifier in Step 4 VERIFY) can reproduce the exact signature for the
+ * same inputs. Payload extends v2 with the from-address appended:
+ *
+ *   `METHOD:PATH:TIMESTAMP:BODY_SHA256:FROM`
+ *
+ * Body hash is mandatory in v3 (no body → empty-string slot, exactly like v2).
+ * Method is uppercased; path is `URL.pathname` (no query/fragment).
+ */
+export function signRequestV3(opts: {
+  peerKey: string;
+  fromAddress: string;
+  method: string;
+  path: string;
+  timestamp: number;
+  body?: string | Uint8Array;
+}): { signature: string; bodyHash: string } {
+  if (!opts.peerKey) throw new Error("signRequestV3: peerKey is required");
+  if (!opts.fromAddress) throw new Error("signRequestV3: fromAddress is required (<oracle>:<node>)");
+  const method = (opts.method || "GET").toUpperCase();
+  const bodyHash = opts.body != null ? hashBody(opts.body) : "";
+  const payload = `${method}:${opts.path}:${opts.timestamp}:${bodyHash}:${opts.fromAddress}`;
+  const signature = createHmac("sha256", opts.peerKey).update(payload).digest("hex");
+  return { signature, bodyHash };
+}
+
+/**
+ * Produce the v3 outbound header set:
+ *
+ *   - `X-Maw-From`             sender, `<oracle>:<node>`
+ *   - `X-Maw-Signature-V3`     HMAC-SHA256(peerKey, payload), lowercase hex
+ *   - `X-Maw-Timestamp`        numeric seconds — REUSED from v2 (single source
+ *                              of truth on the wire; v2 + v3 share clock skew)
+ *   - `X-Maw-Auth-Version: v3` signal the verifier should look at the v3 slot
+ *
+ * v3 is ADDITIVE: callers stack these on top of the v2 `X-Maw-Signature` /
+ * `X-Maw-Timestamp` pair so a fleet still on v2-only verifiers keeps
+ * working. The v3 timestamp is the same number as the v2 one — when the
+ * caller signs both, both signatures bind the same instant.
+ */
+export function signHeadersV3(opts: {
+  peerKey: string;
+  fromAddress: string;
+  method: string;
+  path: string;
+  body?: string | Uint8Array;
+  timestamp?: number;
+}): Record<string, string> {
+  const ts = opts.timestamp ?? Math.floor(Date.now() / 1000);
+  const { signature } = signRequestV3({
+    peerKey: opts.peerKey,
+    fromAddress: opts.fromAddress,
+    method: opts.method,
+    path: opts.path,
+    timestamp: ts,
+    body: opts.body,
+  });
+  return {
+    "X-Maw-From": opts.fromAddress,
+    "X-Maw-Signature-V3": signature,
+    "X-Maw-Timestamp": String(ts),
+    "X-Maw-Auth-Version": "v3",
+  };
+}
+
+/**
+ * Derive the sender's `<oracle>:<node>` from-address from config.
+ *
+ * Per #804 research:  `<config.oracle ?? "mawjs">:<config.node>`. Returns
+ * null when `config.node` is unset — callers MUST NOT v3-sign in that
+ * posture because the verifier has nothing stable to anchor the TOFU
+ * lookup against (single-node operators stay on v1/v2 token).
+ */
+export function resolveFromAddress(config: { oracle?: string; node?: string }): string | null {
+  if (!config.node) return null;
+  const oracle = config.oracle ?? DEFAULT_ORACLE;
+  return `${oracle}:${config.node}`;
 }
 
 // --- Hono middleware ---
