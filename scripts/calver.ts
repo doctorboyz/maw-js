@@ -1,20 +1,26 @@
 #!/usr/bin/env bun
 // CalVer bump for maw-js
 //
-// Scheme: v{yy}.{m}.{d}[-(alpha|beta).{N}]
+// Scheme: v{yy}.{m}.{d}[-(alpha|beta).{HHMM}]
 // Spec:   https://github.com/Soul-Brews-Studio/mawjs-oracle/blob/main/%CF%88/inbox/2026-04-18_proposal-calver-skills-cli.md
 // Ported from: Soul-Brews-Studio/arra-oracle-skills-cli (PR #262)
 // Umbrella: #526
-// Option A (#766): monotonic running counter — N starts at 0 each day,
-// counts up per release. Walk existing tags AND package.json (#784) for
-// today's date and pick max+1.
-// Beta channel (#754): parallel hourly channel, independent counter.
-// No timestamp encoded in the alpha/beta number; pure ordering.
-// Timezone comes from the shell — set TZ=Asia/Bangkok in CI if needed.
+// HHMM scheme: alpha/beta suffix is the local-time hour+minute, zero-padded
+// to 4 chars (e.g. `0234`, `0935`, `2359`). Eliminates merge-order collisions
+// — each minute is a unique slot. Timezone comes from the shell — set
+// TZ=Asia/Bangkok in CI to match the project's release cadence.
+//
+// Format note: HHMM is treated as an alphanumeric pre-release identifier
+// (it has a leading zero between 00:00 and 09:59), which means semver
+// compares lexically. All values are 4-char strings with the same character
+// class, so lexical order matches chronological order. Per semver spec,
+// alphanumeric IDs sort *higher* than numeric IDs — so `26.4.29-alpha.0234`
+// is strictly greater than legacy `26.4.29-alpha.48` (numeric counter from
+// pre-HHMM scheme). No downgrade across the cutover.
 //
 // Usage:
-//   bun scripts/calver.ts                  → 26.4.18-alpha.{next-N}
-//   bun scripts/calver.ts --beta           → 26.4.18-beta.{next-N}
+//   bun scripts/calver.ts                  → 26.4.18-alpha.{HHMM}
+//   bun scripts/calver.ts --beta           → 26.4.18-beta.{HHMM}
 //   bun scripts/calver.ts --stable         → 26.4.18
 //   bun scripts/calver.ts --check          → dry-run (no writes)
 
@@ -56,19 +62,21 @@ const HELP = `Usage: bun scripts/calver.ts [options]
 
 Compute next CalVer version and bump package.json.
 
-Scheme: v{yy}.{m}.{d}[-(alpha|beta).{N}] — N is a monotonic running counter
-that starts at 0 each day and counts up per release (Option A from #766).
-Alpha and beta are independent channels with their own counters (#754).
+Scheme: v{yy}.{m}.{d}[-(alpha|beta).{HHMM}] — HHMM is the local-time hour
+and minute, zero-padded to 4 chars (e.g. 0234, 0935, 2359). Each minute is
+a unique slot, so two PRs cutting CalVer in the same minute is the only
+collision case (much rarer than the prior monotonic counter scheme).
+Alpha and beta share the same date base; channel disambiguates.
 
 Options:
   --stable         Cut stable (no alpha/beta suffix)
-  --beta           Cut beta instead of alpha (separate counter)
+  --beta           Cut beta instead of alpha
   --check          Dry-run: print target, don't modify files
   -h, --help       Show help
 
 Examples:
-  bun scripts/calver.ts                  next alpha → 26.4.18-alpha.{next-N}
-  bun scripts/calver.ts --beta           next beta  → 26.4.18-beta.{next-N}
+  bun scripts/calver.ts                  next alpha → 26.4.18-alpha.{HHMM}
+  bun scripts/calver.ts --beta           next beta  → 26.4.18-beta.{HHMM}
   bun scripts/calver.ts --stable         stable cut → 26.4.18
   bun scripts/calver.ts --check          print only, no write`;
 
@@ -188,6 +196,17 @@ async function listChannelTags(base: string, channel: Channel): Promise<string[]
   return res.stdout.toString().split("\n").map(s => s.trim()).filter(Boolean);
 }
 
+/**
+ * HHMM stamp — local-time hour+minute, zero-padded to 4 chars. Used as the
+ * alphanumeric pre-release identifier for alpha/beta cuts. Timezone is
+ * implicit (the Date's local TZ); CI should set TZ=Asia/Bangkok.
+ */
+export function hhmmStamp(now: Date): string {
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  return `${hh}${mm}`;
+}
+
 export function computeVersion(args: Args, tags: string[] = [], packageVersion: string = ""): string {
   const now = args.now ?? new Date();
   const todayBase = dateBase(now);
@@ -196,13 +215,12 @@ export function computeVersion(args: Args, tags: string[] = [], packageVersion: 
   const base = args.stable ? todayBase : effectiveBase(todayBase, packageVersion);
   if (args.stable) return base;
   const channel = args.channel ?? "alpha";
-  // Take max of (tag-walk N, package.json N) against the effective base —
-  // see maxNFromPackageJson (#784) and effectiveBase (#819).
-  const tagMax = maxNFromTags(base, channel, tags);
-  const pkgMax = maxNFromPackageJson(base, channel, packageVersion);
-  const max = Math.max(tagMax, pkgMax);
-  const next = max + 1; // -1 → 0 if none yet today
-  return `${base}-${channel}.${next}`;
+  // HHMM scheme: pre-release ID is the local-time hour+minute. Naturally
+  // unique-per-minute, no tag-walk + package-walk reconciliation needed.
+  // tags + packageVersion params kept for back-compat with callers/tests.
+  void tags; void packageVersion;
+  const stamp = hhmmStamp(now);
+  return `${base}-${channel}.${stamp}`;
 }
 
 async function tagExists(version: string): Promise<boolean> {
