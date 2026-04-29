@@ -35,7 +35,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "fs";
 import { scopesDir } from "../plugins/scope/impl";
-import { loadTrust as loadTrustStore } from "../plugins/trust/store";
+import { loadTrust as loadTrustStore } from "../../lib/trust-store";
 import type { TScope } from "../../lib/schemas";
 
 /**
@@ -163,9 +163,11 @@ export function loadAllScopes(): TScope[] {
 /**
  * Read the on-disk pairwise trust list from `<CONFIG_DIR>/trust.json`.
  *
- * Thin wrapper around `loadTrust()` in `plugins/trust/store.ts` so that
+ * Thin wrapper around `loadTrust()` in `src/lib/trust-store.ts` so that
  * callers wiring the ACL evaluator don't need to know which plugin owns
- * the file. Mirrors the relationship between `loadAllScopes()` (this
+ * the file. The store lives in `src/lib/` (not `plugins/trust/`) since
+ * #924 sub-PR 1 extracted it to unblock community extraction of the
+ * trust plugin. Mirrors the relationship between `loadAllScopes()` (this
  * module) and `cmdList()` (the scope plugin).
  *
  * Returns `[]` when the file is missing, malformed, or unreadable —
