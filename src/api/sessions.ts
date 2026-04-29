@@ -374,7 +374,7 @@ sessionsApi.post("/wake", async ({ body, set}) => {
 sessionsApi.post("/sleep", async ({ body, set}) => {
   try {
     const { target } = body;
-    const { cmdSleepOne } = await import("../commands/plugins/sleep/impl");
+    const { cmdSleepOne } = await import("../lib/sleep");
     await cmdSleepOne(target);
     return { ok: true, target };
   } catch (err) {

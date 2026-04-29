@@ -170,7 +170,7 @@ export async function cmdSend(
       console.error("usage: maw hey team:<team-name> <message>");
       process.exit(1);
     }
-    const { getOracleMembers, loadOracleRegistry } = await import("../plugins/team/oracle-members");
+    const { getOracleMembers, loadOracleRegistry } = await import("../../lib/oracle-members");
     const senderOracle = resolveMyName(config);
     const members = getOracleMembers(teamName, senderOracle);
     if (members.length === 0) {
@@ -392,7 +392,7 @@ export async function cmdSend(
   // skips the gate immediately. Idempotent in `cmdAdd`.
   if (opts.approve && opts.trust && result?.type === "peer") {
     try {
-      const { cmdAdd } = await import("../plugins/trust/impl");
+      const { cmdAdd } = await import("../../lib/trust-store");
       const senderOracle = config.oracle ?? "mawjs";
       const targetOracle = result.target;
       cmdAdd(senderOracle, targetOracle);

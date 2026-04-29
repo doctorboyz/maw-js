@@ -14,7 +14,7 @@
 import { Elysia } from "elysia";
 import { loadConfig, D } from "../config";
 import { verify, isLoopback, verifyRequest, isRefuseDecision, type FromVerifyDecision } from "./federation-auth";
-import { loadPeers } from "../commands/plugins/peers/store";
+import { loadPeers } from "./peers/store";
 import type { Server } from "bun";
 
 const WINDOW_SEC = D.hmacWindowSeconds;
