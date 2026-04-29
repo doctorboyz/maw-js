@@ -204,8 +204,8 @@ export async function startServer(port = +(process.env.MAW_PORT || loadConfig().
   // the ADR, "Crypto solves can't-fake; doctor + boot-time check solves
   // operator confusion" — so we just warn loudly and let serve continue.
   try {
-    const { loadPeers } = require("../commands/plugins/peers/store");
-    const { warnDuplicatesAtBoot } = require("../commands/plugins/peers/duplicate-detect");
+    const { loadPeers } = require("../lib/peers/store");
+    const { warnDuplicatesAtBoot } = require("../lib/peers/duplicate-detect");
     const peers = loadPeers().peers;
     const local = config.node ? { oracle: config.oracle ?? "mawjs", node: config.node } : undefined;
     warnDuplicatesAtBoot({ peers, local });

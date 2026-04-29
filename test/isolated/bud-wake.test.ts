@@ -198,6 +198,19 @@ mock.module(
   }),
 );
 
+// `bud-wake.ts` imports `syncDir` from the vendored `src/lib/sync-dir` (#918
+// follow-up Phase 2) — same surface area as the soul-sync plugin export above,
+// just relocated. Mirror the mock here so finalizeBud step 8.5 records calls.
+mock.module(
+  join(import.meta.dir, "../../src/lib/sync-dir"),
+  () => ({
+    syncDir: (src: string, dst: string) => {
+      if (!mockActive) return realSyncDir(src, dst);
+      syncDirCalls.push({ src, dst });
+    },
+  }),
+);
+
 let cmdSplitCalls: string[] = [];
 let cmdSplitThrow: Error | null = null;
 mock.module(

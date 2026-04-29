@@ -34,8 +34,8 @@
  */
 
 import { existsSync, readFileSync, readdirSync } from "fs";
-import { scopesDir } from "../plugins/scope/impl";
-import { loadTrust as loadTrustStore } from "../plugins/trust/store";
+import { scopesDir } from "../../lib/scope-paths";
+import { loadTrust as loadTrustStore } from "../../lib/trust-store";
 import type { TScope } from "../../lib/schemas";
 
 /**
