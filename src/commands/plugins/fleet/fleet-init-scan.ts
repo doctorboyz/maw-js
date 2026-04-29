@@ -139,12 +139,12 @@ export async function cmdFleetInit() {
 
   for (const [groupName, data] of sorted) {
     const paddedNum = String(data.order).padStart(2, "0");
-    const sessionName = `${paddedNum}-${groupName}`;
-    const config: FleetSession = { name: sessionName, windows: data.windows };
-    const filePath = join(fleetDir, `${sessionName}.json`);
+    const fileName = `${paddedNum}-${groupName}`;
+    const config: FleetSession = { name: groupName, windows: data.windows };
+    const filePath = join(fleetDir, `${fileName}.json`);
 
     await Bun.write(filePath, JSON.stringify(config, null, 2) + "\n");
-    console.log(`  \x1b[32m✓\x1b[0m ${sessionName}.json — ${data.windows.length} windows`);
+    console.log(`  \x1b[32m✓\x1b[0m ${fileName}.json — ${data.windows.length} windows`);
   }
 
   // Add overview session

@@ -69,11 +69,13 @@ export async function cmdFleetRenumber() {
   for (const e of regular) {
     const newNum = String(num).padStart(2, "0");
     const newFile = `${newNum}-${e.groupName}.json`;
-    const newName = `${newNum}-${e.groupName}`;
+    const newName = e.groupName;
     const oldName = e.session.name;
 
     if (newFile !== e.file) {
       // Update config.name in JSON — write to temp file then atomically rename
+      // name stays as the bare oracle name (no numeric prefix) — tmux sessions
+      // are called by name, not by ID.
       e.session.name = newName;
       const tmpPath = join(FLEET_DIR, `.tmp-${newFile}`);
       await Bun.write(tmpPath, JSON.stringify(e.session, null, 2) + "\n");
