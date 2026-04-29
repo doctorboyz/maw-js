@@ -77,8 +77,14 @@ jobs:
           if (( M < 1 || M > 12 )); then
             echo "::error::Month must be 1-12, got $M"; exit 1
           fi
-          if (( D < 1 || D > 31 )); then
-            echo "::error::Day must be 1-31, got $D"; exit 1
+          # Stable channel uses the third number as a monotonic counter
+          # that starts at the actual day-of-month and increments on every
+          # cut, so values can legitimately exceed 31 after a day-rollover
+          # streak (e.g. yesterday cut .31, today cuts continue .32, .33…).
+          # Only floor-validate; the upstream calver script is the source
+          # of truth for ordering.
+          if (( D < 1 )); then
+            echo "::error::Day/counter must be ≥1, got $D"; exit 1
           fi
           PRERELEASE="false"
           CHANNEL="stable"
