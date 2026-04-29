@@ -130,7 +130,7 @@ export async function finalizeBud(ctx: BudFinalizeCtx): Promise<void> {
   if (opts.repo) {
     const localPsi = join(reposRoot, opts.repo, "ψ", "memory");
     if (existsSync(localPsi)) {
-      const { syncDir } = await import("../soul-sync/impl");
+      const { syncDir } = await import("../../../lib/sync-dir");
       for (const sub of ["learnings", "retrospectives", "traces"]) {
         const src = join(localPsi, sub);
         const dst = join(psiDir, "memory", sub);

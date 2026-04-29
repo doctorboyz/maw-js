@@ -42,7 +42,7 @@ export function resolveBindHost(
   const reader = readPeers ?? (() => {
     try {
       // Lazy-require to keep this heuristic importable without the plugin bundle.
-      return require("../commands/plugins/peers/store").loadPeers();
+      return require("../lib/peers/store").loadPeers();
     } catch { return { peers: {} }; }
   });
   try {
