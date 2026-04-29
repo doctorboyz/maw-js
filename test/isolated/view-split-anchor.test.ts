@@ -62,11 +62,14 @@ mock.module(join(import.meta.dir, "../../src/core/fleet/audit"), () => ({
   logAnomaly: () => {},
 }));
 
-mock.module(join(import.meta.dir, "../../src/commands/plugins/split/impl"), () => ({
+const splitMockFactory = () => ({
   cmdSplit: async (target: string, opts: { anchorPane?: string } = {}) => {
     cmdSplitCalls.push({ target, opts });
   },
-}));
+});
+mock.module(join(import.meta.dir, "../../src/commands/plugins/split/impl"), splitMockFactory);
+// Phase 2 vendor: view now imports cmdSplit from its own vendored copy.
+mock.module(join(import.meta.dir, "../../src/commands/plugins/view/internal/split-impl"), splitMockFactory);
 
 const { cmdView } = await import("../../src/commands/plugins/view/impl");
 

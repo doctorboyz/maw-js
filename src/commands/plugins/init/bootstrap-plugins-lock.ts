@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from "fs";
 import { dirname } from "path";
-import { LOCK_SCHEMA, lockPath, writeLock } from "../plugin/lock";
+import { LOCK_SCHEMA, lockPath, writeLock } from "./internal/plugin-lock";
 
 export interface BootstrapPluginsLockResult {
   created: boolean;

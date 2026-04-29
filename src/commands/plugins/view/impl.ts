@@ -4,7 +4,7 @@ import { loadConfig } from "../../../config";
 import { resolveSessionTarget } from "../../../core/matcher/resolve-target";
 import { logAnomaly } from "../../../core/fleet/audit";
 import { execFileSync } from "child_process";
-import { ttyAsk } from "../init/prompts";
+import { ttyAsk } from "./internal/prompts";
 
 /**
  * Decide whether to offer a wake prompt on missing target. Extracted for
@@ -207,7 +207,7 @@ export async function cmdView(
       await t.set(sessionName, "status", "off");
     }
     if (splitAnchor !== undefined) {
-      const { cmdSplit } = await import("../split/impl");
+      const { cmdSplit } = await import("./internal/split-impl");
       const anchorPane = typeof splitAnchor === "string"
         ? await resolveAnchorPane(splitAnchor)
         : undefined;
@@ -274,7 +274,7 @@ export async function cmdView(
   // detaching+attaching the whole client. Explicit anchor breaks the
   // active-pane-drift that caused the fractal-split cascade (#545/#546).
   if (splitAnchor !== undefined) {
-    const { cmdSplit } = await import("../split/impl");
+    const { cmdSplit } = await import("./internal/split-impl");
     const anchorPane = typeof splitAnchor === "string"
       ? await resolveAnchorPane(splitAnchor)
       : undefined;

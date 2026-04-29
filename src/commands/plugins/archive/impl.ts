@@ -1,7 +1,7 @@
 import { hostExec } from "../../../sdk";
 import { getGhqRoot } from "../../../config/ghq-root";
 import { loadFleetEntries } from "../../shared/fleet-load";
-import { cmdSoulSync } from "../soul-sync/impl";
+import { cmdSoulSync } from "./internal/soul-sync-impl";
 import { FLEET_DIR } from "../../../sdk";
 import { join } from "path";
 import { existsSync, renameSync } from "fs";

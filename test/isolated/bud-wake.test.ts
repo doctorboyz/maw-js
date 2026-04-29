@@ -175,27 +175,33 @@ mock.module(
 let cmdSoulSyncCalls: Array<{ target: string; opts: Record<string, unknown> }> = [];
 let cmdSoulSyncThrow: Error | null = null;
 let syncDirCalls: Array<{ src: string; dst: string }> = [];
+const soulSyncMockFactory = () => ({
+  resolveOraclePath: realResolveOraclePath,
+  resolveProjectSlug: realResolveProjectSlug,
+  findOracleForProject: realFindOracleForProject,
+  findPeers: realFindPeers,
+  findProjectsForOracle: realFindProjectsForOracle,
+  syncProjectVault: realSyncProjectVault,
+  cmdSoulSyncProject: realCmdSoulSyncProject,
+  cmdSoulSync: async (target?: string, opts?: Record<string, unknown>) => {
+    if (!mockActive) return realCmdSoulSync(target, opts as any);
+    cmdSoulSyncCalls.push({ target: target ?? "", opts: opts ?? {} });
+    if (cmdSoulSyncThrow) throw cmdSoulSyncThrow;
+    return [];
+  },
+  syncDir: (src: string, dst: string) => {
+    if (!mockActive) return realSyncDir(src, dst);
+    syncDirCalls.push({ src, dst });
+  },
+});
 mock.module(
   join(import.meta.dir, "../../src/commands/plugins/soul-sync/impl"),
-  () => ({
-    resolveOraclePath: realResolveOraclePath,
-    resolveProjectSlug: realResolveProjectSlug,
-    findOracleForProject: realFindOracleForProject,
-    findPeers: realFindPeers,
-    findProjectsForOracle: realFindProjectsForOracle,
-    syncProjectVault: realSyncProjectVault,
-    cmdSoulSyncProject: realCmdSoulSyncProject,
-    cmdSoulSync: async (target?: string, opts?: Record<string, unknown>) => {
-      if (!mockActive) return realCmdSoulSync(target, opts as any);
-      cmdSoulSyncCalls.push({ target: target ?? "", opts: opts ?? {} });
-      if (cmdSoulSyncThrow) throw cmdSoulSyncThrow;
-      return [];
-    },
-    syncDir: (src: string, dst: string) => {
-      if (!mockActive) return realSyncDir(src, dst);
-      syncDirCalls.push({ src, dst });
-    },
-  }),
+  soulSyncMockFactory,
+);
+// Phase 2 vendor: bud now imports cmdSoulSync from its own vendored copy.
+mock.module(
+  join(import.meta.dir, "../../src/commands/plugins/bud/internal/soul-sync-impl"),
+  soulSyncMockFactory,
 );
 
 // `bud-wake.ts` imports `syncDir` from the vendored `src/lib/sync-dir` (#918
@@ -213,16 +219,22 @@ mock.module(
 
 let cmdSplitCalls: string[] = [];
 let cmdSplitThrow: Error | null = null;
+const splitMockFactory = () => ({
+  ..._rSplitImpl,
+  cmdSplit: async (name: string, opts?: Record<string, unknown>) => {
+    if (!mockActive) return realCmdSplit(name, opts as any);
+    cmdSplitCalls.push(name);
+    if (cmdSplitThrow) throw cmdSplitThrow;
+  },
+});
 mock.module(
   join(import.meta.dir, "../../src/commands/plugins/split/impl"),
-  () => ({
-    ..._rSplitImpl,
-    cmdSplit: async (name: string, opts?: Record<string, unknown>) => {
-      if (!mockActive) return realCmdSplit(name, opts as any);
-      cmdSplitCalls.push(name);
-      if (cmdSplitThrow) throw cmdSplitThrow;
-    },
-  }),
+  splitMockFactory,
+);
+// Phase 2 vendor: bud now imports cmdSplit from its own vendored copy.
+mock.module(
+  join(import.meta.dir, "../../src/commands/plugins/bud/internal/split-impl"),
+  splitMockFactory,
 );
 
 // #680 — getGhqRoot moved to leaf module config/ghq-root. finalizeBud calls

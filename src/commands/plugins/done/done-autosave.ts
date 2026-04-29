@@ -3,8 +3,8 @@ import { tmux } from "../../../sdk";
 import { appendFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { cmdReunion } from "../reunion/impl";
-import { cmdSoulSync } from "../soul-sync/impl";
+import { cmdReunion } from "./internal/reunion-impl";
+import { cmdSoulSync } from "./internal/soul-sync-impl";
 import type { DoneOpts } from "./impl";
 
 type SessionInfo = { name: string; windows: { index: number; name: string; active: boolean }[] };

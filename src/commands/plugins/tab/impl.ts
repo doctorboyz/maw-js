@@ -1,7 +1,7 @@
 import { hostExec } from "../../../sdk";
 import { tmux, tmuxCmd } from "../../../sdk";
 import { cmdPeek, cmdSend } from "../../shared/comm";
-import { cmdTalkTo } from "../talk-to/impl";
+import { cmdTalkTo } from "./internal/talk-to-impl";
 
 /**
  * Get current tmux session name (whoami).
