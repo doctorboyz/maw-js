@@ -1,0 +1,14 @@
+{
+  "name": "inbox",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Oracle inbox — MSG-ACK-RESULT protocol for cross-oracle vault messaging.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "inbox",
+    "aliases": ["ibx"],
+    "help": "maw inbox <ls|send|ack|result|show|read> [...] — cross-oracle MSG-ACK-RESULT messaging"
+  },
+  "weight": 40
+}
