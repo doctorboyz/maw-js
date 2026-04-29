@@ -2,8 +2,8 @@ import { existsSync, readFileSync, readlinkSync } from "fs";
 import { execSync } from "child_process";
 import { homedir } from "os";
 import { join, dirname, resolve } from "path";
-import { loadPeers } from "../peers/store";
-import { findDuplicateIdentities, formatDuplicate } from "../peers/duplicate-detect";
+import { loadPeers } from "./internal/peers-store";
+import { findDuplicateIdentities, formatDuplicate } from "./internal/duplicate-detect";
 import { loadConfig } from "../../../config";
 import { C } from "../../shared/fleet-doctor-fixer";
 import { loadManifestCached, invalidateManifest } from "../../../lib/oracle-manifest";
@@ -178,7 +178,7 @@ function listPm2MawProcs(): Pm2Proc[] | null {
  * will populate identity and bring them under the dedup umbrella).
  */
 function checkPeerDuplicates(): DoctorResult["checks"][number] {
-  let peers: Record<string, import("../peers/store").Peer> = {};
+  let peers: Record<string, import("./internal/peers-store").Peer> = {};
   try {
     peers = loadPeers().peers;
   } catch (e: any) {

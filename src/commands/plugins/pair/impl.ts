@@ -5,7 +5,7 @@
  */
 
 import { loadConfig } from "../../../config";
-import { cmdAdd } from "../peers/impl";
+import { cmdAdd } from "./internal/peers-impl";
 import { postHandshake, warnIfPlainHttp } from "./handshake";
 import { normalize, isValidShape, redact } from "./codes";
 
