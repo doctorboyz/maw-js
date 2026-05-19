@@ -5,6 +5,7 @@ import { tmux, FLEET_DIR } from "../../sdk";
 export interface FleetWindow {
   name: string;
   repo: string;
+  root?: string;
 }
 
 export interface FleetSession {

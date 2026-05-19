@@ -22,8 +22,8 @@ import {
   renameSync,
 } from "fs";
 import { join } from "path";
-import { homedir } from "os";
 import { loadConfig } from "../../../config";
+import { loadFleet } from "../../shared/fleet-load";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -71,24 +71,19 @@ export function resolveOutboxDir(): string {
   return join(resolvePsiDir(), "outbox");
 }
 
-/** Resolve ψ/ directory for a NAMED oracle by looking up its vault path */
+/** Resolve ψ/ directory for a NAMED oracle by scanning fleet configs.
+ *  Fleet registration is the single source of truth — no hardcoded mapping. */
 export function resolveOraclePsiDir(oracleName: string): string | null {
-  const config = loadConfig();
-  const ghqRoot = config.ghqRoot || join(homedir(), "Code", "github.com");
-  const githubOrg = config.githubOrg || "doctorboyz";
-
-  // Name → repo name mapping
-  const nameToRepo: Record<string, string> = {
-    "emily": "emily-oracle",
-    "pm": "pm-oracle",
-    "god-port": "god-port-oracle",
-    "broky": "broky-oracle",
-    "metty": "metty-oracle",
-    "skilly": "skilly-oracle",
-  };
-  const repoName = nameToRepo[oracleName] || `${oracleName}-oracle`;
-  const candidate = join(ghqRoot, githubOrg, repoName, "ψ");
-  if (existsSync(candidate)) return candidate;
+  // 1. Fleet configs (source of truth — `maw fleet init` writes root path)
+  const fleet = loadFleet();
+  for (const entry of fleet) {
+    if (entry.name !== oracleName) continue;
+    const root = entry.windows?.[0]?.root;
+    if (root && existsSync(root)) {
+      const psiDir = join(root, "ψ");
+      if (existsSync(psiDir)) return psiDir;
+    }
+  }
 
   return null;
 }
