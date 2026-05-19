@@ -3,4 +3,4 @@ export type { TriggerEvent, TriggerConfig, PeerConfig, MawIntervals, MawTimeouts
 export { D } from "./config/types";
 export { validateConfigShape } from "./config/validate";
 export { loadConfig, resetConfig, saveConfig, configForDisplay, cfgInterval, cfgTimeout, cfgLimit, cfg } from "./config/load";
-export { buildCommand, buildCommandInDir, getEnvVars } from "./config/command";
+export { buildCommand, buildCommandInDir, getEnvVars, resolveOllamaModel, getOllamaModels, setOllamaModel } from "./config/command";

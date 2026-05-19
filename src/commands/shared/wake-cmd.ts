@@ -1,6 +1,6 @@
 import { hostExec, tmux, restoreTabOrder, takeSnapshot, getPaneInfos, isAgentCommand } from "../../sdk";
 import { ghqFind } from "../../core/ghq";
-import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig } from "../../config";
+import { buildCommandInDir, cfgTimeout, loadConfig, saveConfig, resolveOllamaModel } from "../../config";
 import { resolveWorktreeTarget } from "../../core/matcher/resolve-target";
 import { normalizeTarget } from "../../core/matcher/normalize-target";
 import { assertValidOracleName } from "../../core/fleet/validate";
@@ -193,32 +193,20 @@ export async function cmdWake(oracle: string, opts: { task?: string; wt?: string
     isLive: Boolean(session),
   });
 
+  // Resolve {ollama-pick} once — sets module-level cache so buildCommand() picks it up
+  try { await resolveOllamaModel(); } catch { /* ok, fallback in buildCommand */ }
+
   if (!session && wakeDecision.wake) {
     // #2 — refuse to spawn a brand-new session/agent once the fleet is at the
     // configured concurrency cap (no-op when limits.maxConcurrentAgents is 0).
     await assertAgentCapacity(oracle);
 
+    const mainWindowName = `${oracle}-oracle`;
+
     // #769 — URL input names the new session after the full repo (e.g.
     // "m5-oracle") so it's distinct from any unrelated sub-token sessions
     // and immediately disambiguates future `maw wake` calls.
-    const baseName = getSessionMap()[oracle] || resolveFleetSession(oracle) || opts.urlRepoName || oracle;
-
-    // #994 — auto-assign NN- prefix to match fleet convention (01-maw-m5, 02-...).
-    // Scan existing sessions for numeric prefixes, pick max+1, zero-pad to 2 digits.
-    let session_: string;
-    if (/^\d+-/.test(baseName)) {
-      session_ = baseName;
-    } else {
-      const sessions = await tmux.listSessions().catch(() => [] as { name: string }[]);
-      let maxNum = 0;
-      for (const s of sessions) {
-        const m = s.name.match(/^(\d+)-/);
-        if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
-      }
-      session_ = `${String(maxNum + 1).padStart(2, "0")}-${baseName}`;
-    }
-    session = session_;
-    const mainWindowName = `${oracle}-oracle`;
+    session = getSessionMap()[oracle] || resolveFleetSession(oracle) || opts.urlRepoName || oracle;
     await tmux.newSession(session, { window: mainWindowName, cwd: repoPath });
     await waitForTmuxSessionReady(session);
     await retryFreshSessionTmuxStep(session, "set session environment", () => setSessionEnv(session));

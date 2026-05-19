@@ -1,4 +1,5 @@
 import type { MawConfig } from "./types";
+import { getOllamaModelCache } from "./ollama-cache";
 
 function matchGlob(pattern: string, name: string): boolean {
   if (pattern === name) return true;
@@ -47,7 +48,14 @@ export function buildCommandFromConfig(
   if (cmd.includes("--continue") || cmd.includes("--resume")) {
     let fallback = cmd.replace(/\s*--continue\b/, "").replace(/\s*--resume\s+"[^"]*"/, "");
     if (sessionId) fallback += ` --session-id "${sessionId}"`;
-    return `${cmd} || ${fallback}`;
+    cmd = `${cmd} || ${fallback}`;
+  }
+
+  // Replace {ollama-pick} with the user-selected model (set by cmdWake via
+  // setOllamaModel) or fall back to deepseek-v4-pro:cloud.
+  if (cmd.includes("{ollama-pick}")) {
+    const model = getOllamaModelCache() || "deepseek-v4-pro:cloud";
+    cmd = cmd.replaceAll("{ollama-pick}", model);
   }
 
   return cmd;
