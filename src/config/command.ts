@@ -14,7 +14,7 @@ function askUser(question: string): Promise<string> {
 /** Let interactive callers pre-select the model before buildCommand() runs. */
 export function setOllamaModel(model: string) { setOllamaModelCache(model); }
 
-/** Return currently pulled Ollama model names (e.g. ["glm-5.1:cloud", "kimi-k2.6:cloud"]) */
+/** Return currently pulled Ollama model names (e.g. ["glm-5.2:cloud", "kimi-k2.7:cloud"]) */
 export function getOllamaModels(): string[] {
   try {
     const output = execSync("ollama list", { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
@@ -36,10 +36,12 @@ export async function resolveOllamaModel(): Promise<string> {
   if (!models.length) throw new Error("no Ollama models found — pull one first: ollama pull <model>:cloud");
 
   // Non-interactive fallback (fleet wake, ws handler, CI)
+  // Prefer glm-5.2:cloud when available; otherwise fall back to first model
   if (!process.stdin.isTTY) {
-    console.log(`\x1b[36m→\x1b[0m non-interactive — using ${models[0]}`);
-    setOllamaModel(models[0]);
-    return models[0];
+    const preferred = models.find(m => m === "glm-5.2:cloud") || models[0]!;
+    console.log(`\x1b[36m→\x1b[0m non-interactive — using ${preferred}`);
+    setOllamaModel(preferred);
+    return preferred;
   }
 
   console.log("\n\x1b[36m⚡ Pick an Ollama model:\x1b[0m\n");

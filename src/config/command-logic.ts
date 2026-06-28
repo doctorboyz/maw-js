@@ -31,7 +31,11 @@ export function buildCommandFromConfig(
     cmd = cmd.replace(/\s*--dangerously-skip-permissions\b/, "");
   }
 
-  // Inject --session-id if configured for this agent
+  // Inject --session-id if configured for this agent. Only use explicitly-configured
+  // sessionIds (a real UUID per agent). Never auto-derive from the agent name: agent
+  // names are not UUIDs, so `--resume "<name>"` opens an interactive picker that
+  // blocks forever (no exact match), and `--session-id "<name>"` is rejected with
+  // "Invalid session ID. Must be a valid UUID." Both leave the pane hung/exited.
   const sessionIds: Record<string, string> = config.sessionIds || {};
   const sessionId = sessionIds[agentName]
     || Object.entries(sessionIds).find(([p]) => p !== "default" && matchGlob(p, agentName))?.[1];
@@ -52,9 +56,9 @@ export function buildCommandFromConfig(
   }
 
   // Replace {ollama-pick} with the user-selected model (set by cmdWake via
-  // setOllamaModel) or fall back to deepseek-v4-pro:cloud.
+  // setOllamaModel) or fall back to glm-5.2:cloud.
   if (cmd.includes("{ollama-pick}")) {
-    const model = getOllamaModelCache() || "deepseek-v4-pro:cloud";
+    const model = getOllamaModelCache() || "glm-5.2:cloud";
     cmd = cmd.replaceAll("{ollama-pick}", model);
   }
 

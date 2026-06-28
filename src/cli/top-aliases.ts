@@ -22,6 +22,7 @@
  */
 
 import { cmdWake } from "../commands/shared/wake-cmd";
+import { cmdWakeAll } from "../commands/shared/fleet-wake";
 import { cmdTmuxLs } from "../commands/plugins/tmux/impl";
 import { cmdPreflight } from "../commands/shared/preflight";
 import { parseFlags } from "./parse-args";
@@ -187,8 +188,25 @@ export async function invokeDirectHandler(
     const positional = flags._;
     const oracle = positional[0];
     if (!oracle) {
-      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--split] [--all-local] [-e|--engine <name>]");
+      console.error("usage: maw wake <oracle> [--task <s>] [--wt <s>] [-p|--prompt <s>] [--incubate <slug>] [--fresh] [-a|--attach] [--list] [--split] [--all-local] [-e|--engine <name>]\n       maw wake all [--kill] [--all] [--resume]");
       throw new UserError("wake: missing oracle name");
+    }
+
+    // `maw wake all` — wake the entire fleet (cmdWakeAll), not the oracle named "all".
+    // Re-parse with the wake-all flag set since --kill/--all/--resume aren't in the
+    // single-wake flag schema above.
+    if (oracle.toLowerCase() === "all") {
+      const allFlags = parseFlags(argv, {
+        "--kill": Boolean,
+        "--all": Boolean,
+        "--resume": Boolean,
+      }, 0);
+      await cmdWakeAll({
+        kill: !!allFlags["--kill"],
+        all: !!allFlags["--all"],
+        resume: !!allFlags["--resume"],
+      });
+      return;
     }
 
     const opts: {

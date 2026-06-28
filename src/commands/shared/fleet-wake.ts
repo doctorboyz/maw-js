@@ -75,7 +75,12 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
       // #748 — Oracle repos live at <ghqRoot>/<repo> directly (e.g. /root/projects/neo-oracle),
       // not under github.com/<org>/<repo>. Falling back to /root via missing-cwd was making
       // every Oracle session inherit Labubu's CLAUDE.md identity.
-      const firstPath = join(getGhqRoot(), first.repo);
+      // Prefer the explicit `root` field when the fleet config provides it (handles
+      // ghq layouts where repos live under <ghqRoot>/github.com/<org>/<repo>); fall back
+      // to <ghqRoot>/<repo> for configs that only specify `repo`.
+      const firstPath = first.root && existsSync(first.root)
+        ? first.root
+        : join(getGhqRoot(), first.repo);
       // #748 follow-up — tmux silently falls back to $HOME when -c <missing-path>,
       // which re-surfaces the wrong-CLAUDE.md bug if ghqRoot resolves to a stale value
       // (e.g. test fixture leak setting "/tmp/nope"). Refuse to spawn into a missing
@@ -100,7 +105,9 @@ export async function cmdWakeAll(opts: { kill?: boolean; all?: boolean; resume?:
 
       for (let i = 1; i < sess.windows.length; i++) {
         const win = sess.windows[i];
-        const winPath = join(getGhqRoot(), win.repo);
+        const winPath = win.root && existsSync(win.root)
+          ? win.root
+          : join(getGhqRoot(), win.repo);
         if (!existsSync(winPath)) {
           // Skip rather than throw — first-window throw already surfaced the
           // root cause; per-window failures should fail-soft so other windows
