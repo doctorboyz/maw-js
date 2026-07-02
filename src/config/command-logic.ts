@@ -52,7 +52,11 @@ export function buildCommandFromConfig(
   if (cmd.includes("--continue") || cmd.includes("--resume")) {
     let fallback = cmd.replace(/\s*--continue\b/, "").replace(/\s*--resume\s+"[^"]*"/, "");
     if (sessionId) fallback += ` --session-id "${sessionId}"`;
-    cmd = `${cmd} || ${fallback}`;
+    // Reset terminal state between attempts. The first claude may exit with
+    // mouse-tracking (DEC 1006/1003) still enabled, leaking raw ESC[<...M
+    // sequences into the pane and glitching the fallback launch. `reset`
+    // restores tty modes + sends RIS which disables mouse reporting.
+    cmd = `${cmd} || (reset 2>/dev/null; stty sane 2>/dev/null; ${fallback})`;
   }
 
   // Replace {ollama-pick} with the user-selected model (set by cmdWake via
