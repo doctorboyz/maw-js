@@ -1,0 +1,15 @@
+{
+  "name": "ask",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Send a task to an agent, WAIT until it finishes (idle prompt, no spinner), then print the captured output — send + wait + peek in one verb.",
+  "author": "doctorboyz+Hermes",
+  "cli": {
+    "command": "ask",
+    "help": "maw ask <target> \"<text>\" [--timeout 600] [--lines 60] — send, wait for idle, capture result"
+  },
+  "weight": 0,
+  "license": "MIT",
+  "schemaVersion": 1
+}

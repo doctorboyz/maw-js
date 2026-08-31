@@ -1,0 +1,15 @@
+{
+  "name": "tell",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "Fire-and-forget send with VERIFICATION — confirms the text actually landed on the pane before returning (fixes silent-swallow / wrong-pane incidents).",
+  "author": "doctorboyz+Hermes",
+  "cli": {
+    "command": "tell",
+    "help": "maw tell <target> \"<text>\" — send + verify text landed in the pane (exit 1 if not)"
+  },
+  "weight": 0,
+  "license": "MIT",
+  "schemaVersion": 1
+}
