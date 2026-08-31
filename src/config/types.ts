@@ -78,6 +78,13 @@ export interface MawConfig {
   oracleUrl: string;
   env: Record<string, string>;
   commands: Record<string, string>;
+  /**
+   * Default Ollama model for non-interactive `maw wake` (agent dispatch,
+   * fleet wake, CI). Human interactive wakes still get the picker.
+   * Agents should ask the human first, then pass the choice via MAW_MODEL
+   * env or this config (Hermes pact 2026-08-31). Default: glm-5.3:cloud.
+   */
+  defaultModel?: string;
   sessions: Record<string, string>;
   tmuxSocket?: string;
   peers?: string[];

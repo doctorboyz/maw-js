@@ -35,13 +35,19 @@ export async function resolveOllamaModel(): Promise<string> {
   const models = getOllamaModels();
   if (!models.length) throw new Error("no Ollama models found — pull one first: ollama pull <model>:cloud");
 
-  // Non-interactive fallback (fleet wake, ws handler, CI)
-  // Prefer glm-5.2:cloud when available; otherwise fall back to first model
+  // Non-interactive fallback (fleet wake, ws handler, CI).
+  // Priority: MAW_MODEL env (agent-specified payload) → default model from
+  // config (commands.defaultModel, default glm-5.3:cloud) → first model.
+  // Agents dispatching wake programmatically should set MAW_MODEL after
+  // asking the human which model to use (Hermes pact 2026-08-31).
   if (!process.stdin.isTTY) {
-    const preferred = models.find(m => m === "glm-5.2:cloud") || models[0]!;
-    console.log(`\x1b[36m→\x1b[0m non-interactive — using ${preferred}`);
-    setOllamaModel(preferred);
-    return preferred;
+    const cfgDefault = loadConfig().defaultModel || "glm-5.3:cloud";
+    const envModel = process.env.MAW_MODEL?.trim();
+    const pick = (envModel && models.includes(envModel)) ? envModel
+      : models.find(m => m === cfgDefault) || models[0]!;
+    console.log(`\x1b[36m→\x1b[0m non-interactive — using ${pick}`);
+    setOllamaModel(pick);
+    return pick;
   }
 
   console.log("\n\x1b[36m⚡ Pick an Ollama model:\x1b[0m\n");
