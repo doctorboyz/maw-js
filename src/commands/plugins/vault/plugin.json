@@ -1,0 +1,14 @@
+{
+  "name": "vault",
+  "version": "1.0.0",
+  "entry": "./index.ts",
+  "sdk": "^1.0.0",
+  "description": "CSV-based cross-oracle vault messaging — append-only, ticket-style protocol.",
+  "author": "Soul-Brews-Studio",
+  "cli": {
+    "command": "vault",
+    "aliases": ["vlt"],
+    "help": "maw vault <send|ls|status|accept|result> [...] — CSV-based cross-oracle messaging"
+  },
+  "weight": 35
+}
